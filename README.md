@@ -33,6 +33,7 @@ python main.py fetch --ticker AAPL --start 2015-01-01
 python main.py train --ticker AAPL
 python main.py backtest --ticker AAPL                    # default: 10 bps per trade
 python main.py backtest --ticker AAPL --cost-bps 0       # zero-cost (optimistic)
+python main.py backtest --ticker AAPL --threshold 0.55   # only trade high-conviction signals
 ```
 
 ## Status

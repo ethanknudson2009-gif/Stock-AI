@@ -36,13 +36,13 @@ def cmd_backtest(args):
     df = add_features(df)
     model, accuracy, train_df, test_df = train_model(df)
 
-    oos_positions = generate_signals(model, test_df)
+    oos_positions = generate_signals(model, test_df, threshold=args.threshold)
     oos_results = run_backtest(test_df, oos_positions, cost_bps=args.cost_bps)
 
-    is_positions = generate_signals(model, train_df)
+    is_positions = generate_signals(model, train_df, threshold=args.threshold)
     is_results = run_backtest(train_df, is_positions, cost_bps=args.cost_bps)
 
-    print(f"Test accuracy: {accuracy:.2%}\n")
+    print(f"Test accuracy: {accuracy:.2%}  (threshold: {args.threshold:.2f})\n")
     _print_results("Out-of-sample (honest)", test_df, oos_results)
     print()
     _print_results("In-sample (training data — overfitting-prone)", train_df, is_results)
@@ -69,6 +69,13 @@ def main():
         type=float,
         default=10.0,
         help="Per-trade cost in basis points (10 bps = 0.1%%). Default 10.",
+    )
+    backtest_p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Min predicted probability to go long (default 0.5 = argmax; "
+        "try 0.55-0.60 for high-conviction only).",
     )
     backtest_p.set_defaults(func=cmd_backtest)
 
