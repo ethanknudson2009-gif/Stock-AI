@@ -37,8 +37,8 @@ python main.py backtest --ticker AAPL
 ## Status
 
 Early scaffold — data pipeline, model, and backtester are functional but
-minimal. **Known limitation:** `backtest` currently generates signals
-using the model over the full dataset it was trained on, so results are
-mostly in-sample and will look unrealistically good. Next step: score
-only on the held-out test split (or walk-forward) before trusting any
-backtest numbers.
+minimal. `backtest` now reports **out-of-sample** results (chronological
+train/test split; signals generated only on held-out data) alongside the
+in-sample numbers so you can see the overfitting gap. Still missing for
+anything beyond a toy: walk-forward retraining, transaction costs/slippage,
+and persisted model artifacts.

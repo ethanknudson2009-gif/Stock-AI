@@ -14,8 +14,14 @@ def build_labels(df: pd.DataFrame) -> pd.DataFrame:
     return out.dropna()
 
 
-def train_model(df: pd.DataFrame) -> tuple[RandomForestClassifier, float]:
-    """Train a RandomForest on the feature columns and return (model, test_accuracy)."""
+def train_model(
+    df: pd.DataFrame,
+) -> tuple[RandomForestClassifier, float, pd.DataFrame, pd.DataFrame]:
+    """Train a RandomForest and return (model, test_accuracy, train_df, test_df).
+
+    The split is chronological (shuffle=False) so test_df is strictly after
+    train_df — required for honest out-of-sample backtesting.
+    """
     labeled = build_labels(df)
     X = labeled[FEATURE_COLUMNS]
     y = labeled["label"]
@@ -27,4 +33,7 @@ def train_model(df: pd.DataFrame) -> tuple[RandomForestClassifier, float]:
     model = RandomForestClassifier(n_estimators=200, max_depth=5, random_state=42)
     model.fit(X_train, y_train)
     accuracy = model.score(X_test, y_test)
-    return model, accuracy
+
+    train_df = labeled.loc[X_train.index]
+    test_df = labeled.loc[X_test.index]
+    return model, accuracy, train_df, test_df
