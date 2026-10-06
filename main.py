@@ -28,6 +28,7 @@ def _print_results(label: str, df, results) -> None:
     print(f"  Strategy return: {results['total_return']:.2%}")
     print(f"  Buy & hold:      {results['buy_hold_return']:.2%}")
     print(f"  Sharpe ratio:    {results['sharpe_ratio']:.2f}")
+    print(f"  Trades:          {results['n_trades']} @ {results['cost_bps']:.1f} bps")
 
 
 def cmd_backtest(args):
@@ -36,10 +37,10 @@ def cmd_backtest(args):
     model, accuracy, train_df, test_df = train_model(df)
 
     oos_positions = generate_signals(model, test_df)
-    oos_results = run_backtest(test_df, oos_positions)
+    oos_results = run_backtest(test_df, oos_positions, cost_bps=args.cost_bps)
 
     is_positions = generate_signals(model, train_df)
-    is_results = run_backtest(train_df, is_positions)
+    is_results = run_backtest(train_df, is_positions, cost_bps=args.cost_bps)
 
     print(f"Test accuracy: {accuracy:.2%}\n")
     _print_results("Out-of-sample (honest)", test_df, oos_results)
@@ -63,6 +64,12 @@ def main():
     train_p.set_defaults(func=cmd_train)
 
     backtest_p = sub.add_parser("backtest", parents=[common], help="Backtest the strategy")
+    backtest_p.add_argument(
+        "--cost-bps",
+        type=float,
+        default=10.0,
+        help="Per-trade cost in basis points (10 bps = 0.1%%). Default 10.",
+    )
     backtest_p.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args()

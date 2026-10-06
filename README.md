@@ -31,14 +31,17 @@ cp .env.example .env   # add API keys if using a paid data/broker provider
 ```bash
 python main.py fetch --ticker AAPL --start 2015-01-01
 python main.py train --ticker AAPL
-python main.py backtest --ticker AAPL
+python main.py backtest --ticker AAPL                    # default: 10 bps per trade
+python main.py backtest --ticker AAPL --cost-bps 0       # zero-cost (optimistic)
 ```
 
 ## Status
 
 Early scaffold — data pipeline, model, and backtester are functional but
-minimal. `backtest` now reports **out-of-sample** results (chronological
+minimal. `backtest` reports **out-of-sample** results (chronological
 train/test split; signals generated only on held-out data) alongside the
-in-sample numbers so you can see the overfitting gap. Still missing for
-anything beyond a toy: walk-forward retraining, transaction costs/slippage,
-and persisted model artifacts.
+in-sample numbers so the overfitting gap is visible, and applies a
+configurable per-trade cost (default 10 bps for commission + slippage) so
+numbers reflect something closer to live-trading friction. Still missing
+for anything beyond a toy: walk-forward retraining, persisted model
+artifacts, and better features/labels.
