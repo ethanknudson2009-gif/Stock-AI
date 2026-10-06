@@ -1,6 +1,6 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-09-29
+**Analysis Date:** 2026-09-29 (refreshed 2026-10-06)
 
 ## Directory Layout
 
@@ -30,7 +30,10 @@ Stock-AI/
 │       └── engine.py          # run_backtest(), _sharpe_ratio()
 ├── tests/                  # Unit tests (mirrors stock_ai/ package structure)
 │   ├── __init__.py
-│   └── test_indicators.py   # Tests for stock_ai/features/indicators.py
+│   ├── test_indicators.py   # Tests for stock_ai/features/indicators.py
+│   ├── test_classifier.py   # Tests chronological train/test split invariants
+│   ├── test_backtest.py     # Tests transaction cost model
+│   └── test_signal.py       # Tests confidence threshold on signals
 └── .venv/                   # Local virtualenv (gitignored, not committed)
 ```
 
@@ -63,8 +66,8 @@ Stock-AI/
 
 **`tests/`:**
 - Purpose: unit tests for `stock_ai` modules
-- Contains: one test file so far (`test_indicators.py`), covering only `features/indicators.py`
-- Key files: `tests/test_indicators.py`
+- Contains: four test files covering features, classifier split, backtest costs, and signal thresholds
+- Key files: `tests/test_indicators.py`, `tests/test_classifier.py`, `tests/test_backtest.py`, `tests/test_signal.py`
 
 ## Key File Locations
 
@@ -83,7 +86,10 @@ Stock-AI/
 - `stock_ai/backtest/engine.py`: backtest simulation and metrics
 
 **Testing:**
-- `tests/test_indicators.py`: only existing test module
+- `tests/test_indicators.py`: feature engineering
+- `tests/test_classifier.py`: train/test chronological split invariants (no leakage)
+- `tests/test_backtest.py`: transaction cost model
+- `tests/test_signal.py`: confidence threshold on signals
 
 ## Naming Conventions
 

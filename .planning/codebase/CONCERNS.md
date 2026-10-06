@@ -1,26 +1,32 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-09-29
+**Analysis Date:** 2026-09-29 (refreshed 2026-10-06)
 
-## Tech Debt
+## Resolved Since Initial Audit (2026-10-06)
 
-**In-sample / lookahead-biased backtesting (critical, self-documented):**
-- Issue: `cmd_backtest` in `main.py` trains the model on the *full* dataset (`train_model(df)`) and then immediately generates trading signals over that same full dataset (`generate_signals(model, df)`). The train/test split inside `train_model` (`stock_ai/models/classifier.py:23-25`) is only used to report an accuracy number — it is discarded before backtesting.
-- Files: `main.py:25-35`, `stock_ai/models/classifier.py:17-30`, `stock_ai/strategy/signal.py:8-11`, `stock_ai/backtest/engine.py:6-21`
-- Impact: Reported strategy returns/Sharpe ratio are mostly in-sample and will look unrealistically good. This is explicitly called out as a known limitation in `README.md:39-44`, but is not yet fixed in code.
-- Fix approach: Generate signals only on the held-out test split, or implement walk-forward / expanding-window retraining so no prediction is made on data the model was fit on.
+- **In-sample / lookahead-biased backtesting** — fixed in commit `c9fd358`. `train_model` now returns `(model, accuracy, train_df, test_df)` and `cmd_backtest` runs the strategy on the held-out test slice; in-sample numbers are still printed alongside for comparison. Test `tests/test_classifier.py::test_train_test_split_is_chronological_and_disjoint` locks in the no-leakage invariant.
+- **No transaction cost modeling** — fixed in commit `790d746`. `run_backtest` accepts `cost_bps` (default 10 bps) and deducts a per-trade cost each time position changes. `n_trades` and `cost_bps` are returned in the result dict. Tests in `tests/test_backtest.py` cover both the "costs reduce return" and "zero-trades = no ongoing cost impact" invariants.
+- **No confidence thresholding in signal generation** — fixed in commit `a14d319`. `generate_signals` now uses `predict_proba` and goes long only when `proba_up > threshold` (default 0.5). CLI exposes `--threshold`. Tests in `tests/test_signal.py` cover the threshold invariants.
+
+## Tech Debt (open)
 
 **No caching layer for fetched price data:**
-- Issue: `fetch_price_history` (`stock_ai/data/loader.py:7-13`) calls `yfinance` on every invocation with no on-disk or in-memory cache, despite `README.md:11` describing `stock_ai/data/` as handling "data fetching & caching."
+- Issue: `fetch_price_history` (`stock_ai/data/loader.py:7-13`) calls `yfinance` on every invocation with no on-disk or in-memory cache, despite `README.md` describing `stock_ai/data/` as handling "data fetching & caching."
 - Files: `stock_ai/data/loader.py`
 - Impact: Repeated `fetch`/`train`/`backtest` runs for the same ticker/date range re-download identical data, wasting time and hitting Yahoo Finance rate limits unnecessarily.
 - Fix approach: Add a local cache (e.g., parquet/CSV keyed by ticker+date range) with a freshness/TTL check.
 
 **No position sizing / risk management:**
-- Issue: `generate_signals` (`stock_ai/strategy/signal.py:8-11`) only emits binary long/flat (0/1) positions directly from raw classifier predictions — no confidence thresholding, position sizing, stop-loss, or transaction cost modeling.
+- Issue: `generate_signals` still emits binary long/flat (0/1) positions only — no position sizing (volatility targeting, Kelly), stop-loss, or portfolio-level drawdown halts. Transaction cost modeling and confidence thresholding (both now in place) address some of the original gap, but risk management proper is still absent.
 - Files: `stock_ai/strategy/signal.py`, `stock_ai/backtest/engine.py`
-- Impact: Backtest results ignore slippage/commissions and cannot reflect realistic risk-adjusted strategies; results will diverge further from any live/paper trading implementation implied by the README ("before any live/paper trading").
-- Fix approach: Add configurable transaction cost/slippage in `run_backtest`, and confidence-based sizing (e.g., `model.predict_proba`) in `generate_signals`.
+- Impact: Backtest and (future) paper trading can place large concentrated positions with no automatic circuit breakers. Flagged as a known v1 gap in `.planning/PROJECT.md`; risk layer is scheduled for v2.
+- Fix approach: Add volatility-targeted sizing, a per-trade position cap, and a portfolio-level max drawdown halt. See `.planning/PROJECT.md` risks section.
+
+**No walk-forward backtesting:**
+- Issue: Model is trained once on the first 80% of data and evaluated on the next 20%. Doesn't test whether the strategy's edge persists through regime changes.
+- Files: `stock_ai/models/classifier.py`, `main.py`
+- Impact: A strategy that worked only in 2020-2022 could pass the current single-split backtest. Research-recommended as the highest-information next measurement improvement.
+- Fix approach: Rolling retrain window (e.g., 2y train / 6mo test, step forward), aggregate OOS metrics across splits. Scheduled for v2.
 
 ## Known Bugs
 
@@ -106,11 +112,17 @@
 
 ## Test Coverage Gaps
 
-**Only one test file exists, covering a single function:**
-- What's not tested: `stock_ai/data/loader.py` (`fetch_price_history` — no test, likely because it requires network access), `stock_ai/models/classifier.py` (`build_labels`, `train_model` — untested), `stock_ai/strategy/signal.py` (`generate_signals` — untested), `stock_ai/backtest/engine.py` (`run_backtest`, `_sharpe_ratio` — untested), `main.py` (CLI argument wiring — untested).
-- Files: `tests/test_indicators.py` is the only test file in the repo; `tests/__init__.py` is empty.
-- Risk: Regressions in label construction (off-by-one errors in `build_labels`, `stock_ai/models/classifier.py:10-14`), the lookahead-bias backtest issue, or the Sharpe ratio calculation (`stock_ai/backtest/engine.py:24-27`) would not be caught by any automated test.
-- Priority: High — `build_labels` and `run_backtest` are the most correctness-critical and currently the least tested (zero coverage). Add unit tests using small synthetic DataFrames (similar to the existing pattern in `tests/test_indicators.py:6-14`) for `build_labels`, `run_backtest`, and `_sharpe_ratio` before adding new features.
+**Coverage improved on 2026-10-06.** Four test files now exist:
+- `tests/test_indicators.py` — feature engineering (original)
+- `tests/test_classifier.py` — train/test chronological split + no-leakage invariant
+- `tests/test_backtest.py` — transaction cost model (costs reduce returns, zero-trades edge case)
+- `tests/test_signal.py` — confidence threshold behavior
+
+**Still untested:**
+- `stock_ai/data/loader.py` — `fetch_price_history`'s empty-data `ValueError` path. Needs network mocking (`unittest.mock.patch("stock_ai.data.loader.yf.download")`), none set up yet.
+- `main.py` — CLI argument wiring; no end-to-end test exercises `argparse` dispatch.
+- Sharpe ratio calculation (`_sharpe_ratio` in `stock_ai/backtest/engine.py:24-27`) — the backtest tests cover `run_backtest` end-to-end but not the zero-std guard directly.
+- Priority: Medium — add a `test_loader.py` with a `monkeypatch` for `yf.download` and a direct `_sharpe_ratio` test when adding the next feature.
 
 **No CI configuration:**
 - What's not tested: There is no `.github/workflows/`, `tox.ini`, or other CI configuration found in the repo, so `pytest` (available via `.venv/bin/pytest`) is not run automatically on changes.

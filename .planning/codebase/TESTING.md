@@ -1,6 +1,6 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-09-29
+**Analysis Date:** 2026-09-29 (refreshed 2026-10-06 — three new test files added)
 
 ## Test Framework
 
@@ -33,9 +33,12 @@ No watch mode or coverage command is configured (no `pytest-watch`, no `pytest-c
 ```
 tests/
 ├── __init__.py
-└── test_indicators.py   # only test module currently present
+├── test_indicators.py   # features — add_features(), _rsi()
+├── test_classifier.py   # models — train/test chronological split, no leakage
+├── test_backtest.py     # backtest — transaction cost model
+└── test_signal.py       # strategy — confidence threshold on predict_proba
 ```
-Only one of the five pipeline stages (`data`, `features`, `models`, `strategy`, `backtest`) has any test coverage. When adding tests for the others, mirror this exact naming convention: `tests/test_loader.py`, `tests/test_classifier.py`, `tests/test_signal.py`, `tests/test_engine.py`.
+Four of the five pipeline stages have test coverage. The remaining gap is `stock_ai/data/loader.py` — needs network mocking (see "Mocking" below). When adding tests, mirror this naming convention: `tests/test_loader.py` for the data loader module.
 
 ## Test Structure
 
@@ -115,13 +118,13 @@ pytest --cov=stock_ai
 **E2E Tests:**
 - Not used. No test exercises `main.py`'s CLI (`cmd_fetch`, `cmd_train`, `cmd_backtest`) or `argparse` wiring.
 
-## Coverage Gaps (by module)
+## Coverage Gaps (by module, as of 2026-10-06)
 
-- `stock_ai/data/loader.py` — **no tests**; `fetch_price_history`'s empty-check `ValueError` path (`stock_ai/data/loader.py:10-11`) is untested
-- `stock_ai/models/classifier.py` — **no tests**; `build_labels` and `train_model` are untested
-- `stock_ai/strategy/signal.py` — **no tests**; `generate_signals` is untested
-- `stock_ai/backtest/engine.py` — **no tests**; `run_backtest` and `_sharpe_ratio` (including the zero-std guard at `stock_ai/backtest/engine.py:25-26`) are untested
-- `main.py` — **no tests**; CLI argument parsing and command dispatch are untested
+- `stock_ai/data/loader.py` — **no tests**; `fetch_price_history`'s empty-check `ValueError` path is untested. Needs network mocking (`monkeypatch` of `yf.download`).
+- `stock_ai/models/classifier.py` — **partially tested**; `tests/test_classifier.py` covers the train/test chronological split invariant, but `build_labels` is not tested directly.
+- `stock_ai/strategy/signal.py` — **tested**; `tests/test_signal.py` covers threshold-above-0.5-filters-trades and threshold-at-0 is always long.
+- `stock_ai/backtest/engine.py` — **tested**; `tests/test_backtest.py` covers "costs reduce return" and "zero-trades = no cost impact". `_sharpe_ratio`'s zero-std guard is covered implicitly but no direct test exists.
+- `main.py` — **no tests**; CLI argument parsing and command dispatch are untested.
 
 ## Common Patterns
 

@@ -1,7 +1,7 @@
-<!-- refreshed: 2026-09-29 -->
+<!-- refreshed: 2026-10-06 -->
 # Architecture
 
-**Analysis Date:** 2026-09-29
+**Analysis Date:** 2026-09-29 (refreshed 2026-10-06 after honesty + cost + threshold fixes)
 
 ## System Overview
 
@@ -48,9 +48,9 @@
 | CLI entry point | Parse args, wire commands to the pipeline, print results | `main.py` |
 | Data loader | Fetch daily OHLCV history from Yahoo Finance via `yfinance` | `stock_ai/data/loader.py` |
 | Feature engineering | Compute derived indicator columns (returns, SMAs, RSI) from OHLCV | `stock_ai/features/indicators.py` |
-| Model training | Build up/down labels, split train/test, fit a `RandomForestClassifier` | `stock_ai/models/classifier.py` |
-| Signal generation | Convert model predictions into long/flat position series | `stock_ai/strategy/signal.py` |
-| Backtest engine | Apply positions to returns (with lag), compute return/Sharpe metrics | `stock_ai/backtest/engine.py` |
+| Model training | Build up/down labels, split train/test chronologically, fit a `RandomForestClassifier`, return model + accuracy + train/test slices | `stock_ai/models/classifier.py` |
+| Signal generation | Convert model probabilities into long/flat positions via a configurable confidence threshold | `stock_ai/strategy/signal.py` |
+| Backtest engine | Apply positions to returns (with lag), deduct per-trade transaction costs, compute return/Sharpe/trade-count metrics | `stock_ai/backtest/engine.py` |
 
 ## Pattern Overview
 
@@ -110,13 +110,13 @@
 
 ### Primary Request Path (`python main.py backtest --ticker AAPL`)
 
-1. `main.py` parses args and calls `cmd_backtest()` (`main.py:25`)
-2. `fetch_price_history(ticker, start, end)` downloads OHLCV via yfinance (`stock_ai/data/loader.py:7`)
-3. `add_features(df)` appends `return_1d`, `sma_10`, `sma_50`, `rsi_14`, drops NaN rows (`stock_ai/features/indicators.py:6`)
-4. `train_model(df)` labels rows via `build_labels()`, splits train/test (80/20, no shuffle), fits `RandomForestClassifier` (`stock_ai/models/classifier.py:17`)
-5. `generate_signals(model, df)` runs `model.predict()` over the **full** `df` (not just the held-out test split) to produce a position series (`stock_ai/strategy/signal.py:8`)
-6. `run_backtest(df, positions)` shifts positions by 1 day (avoids same-day lookahead), multiplies by `return_1d`, computes cumulative return, buy-hold return, and Sharpe ratio (`stock_ai/backtest/engine.py:6`)
-7. `main.py` prints accuracy, strategy return, buy-hold return, Sharpe ratio (`main.py:32-35`)
+1. `main.py` parses args and calls `cmd_backtest()`
+2. `fetch_price_history(ticker, start, end)` downloads OHLCV via yfinance
+3. `add_features(df)` appends `return_1d`, `sma_10`, `sma_50`, `rsi_14`, drops NaN rows
+4. `train_model(df)` labels rows via `build_labels()`, splits chronologically 80/20 (no shuffle), fits `RandomForestClassifier`, returns `(model, accuracy, train_df, test_df)`
+5. `generate_signals(model, df, threshold)` calls `model.predict_proba`, returns long/flat positions where `proba_up > threshold`. Called separately on `train_df` (in-sample view) and `test_df` (honest out-of-sample view).
+6. `run_backtest(df, positions, cost_bps)` shifts positions by 1 day (avoids same-day lookahead), applies to `return_1d`, deducts `cost_bps` per trade on position change, computes cumulative return, buy-hold return, Sharpe ratio, and trade count
+7. `main.py` prints accuracy + both in-sample and out-of-sample results side-by-side
 
 **State Management:**
 - No persisted state. Each CLI invocation re-fetches data and retrains the model from scratch; nothing is cached or written to disk.
@@ -148,16 +148,8 @@
 - **Threading:** Single-threaded, synchronous script execution. No async/await, no worker threads.
 - **Global state:** None observed — no module-level singletons or shared mutable state.
 - **Circular imports:** None. Import direction is strictly one-way: `strategy` → `models`; `main.py` → all stage modules. No back-references.
-- **In-sample bias:** `generate_signals()` predicts over the entire dataset (including rows used for training in `train_model()`), so `backtest`'s reported returns are optimistic/in-sample rather than true out-of-sample results. Documented as a known limitation in `README.md`.
+- **Honest out-of-sample reporting** (as of 2026-10-06): `generate_signals()` runs on the held-out `test_df` returned from `train_model()`, so backtest OOS numbers are not polluted by training rows. In-sample numbers are also printed for comparison so the overfitting gap is explicit.
 - **No persistence:** Data, models, and results are never written to disk or a database; every run is fully ephemeral and recomputed from the API.
-
-## Anti-Patterns
-
-### Look-Ahead Bias in Backtest Signal Generation
-
-**What happens:** `cmd_backtest()` in `main.py:25-30` calls `train_model(df)` (which internally splits `df` 80/20 and fits on the first 80%) and then calls `generate_signals(model, df)` passing the **same full `df`**, so the model predicts on rows it was trained on.
-**Why it's wrong:** The reported `Strategy return` and `Sharpe ratio` reflect performance partly on data the model has already seen, inflating apparent skill.
-**Do this instead:** Generate signals only on the held-out test split (or refactor `train_model` to also return the train/test index boundary) before backtesting, per the fix noted in `README.md`.
 
 ## Error Handling
 
