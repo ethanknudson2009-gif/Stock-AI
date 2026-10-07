@@ -37,7 +37,9 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
   2. `generate_signals()` accepts any object conforming to `SignalBackend` with no `isinstance` branching
   3. A new `test_rf_backend.py` passes and all 6 pre-existing pytest tests still pass green
   4. `grep -r "RandomForestClassifier" stock_ai/strategy/ stock_ai/backtest/` returns zero hits (no leakage of concrete model type outside `rf_backend.py`)
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [ ] A-01-PLAN.md — Define SignalBackend Protocol, wrap RandomForest behind it, refactor generate_signals, prove byte-identical CLI output
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - *(Phase A has no HIGH pitfalls — the risk is backward-compat regression; mitigated by SB-04)*
 **Test coverage delivered (from RH-01 safety floor):** none directly, but the Protocol enables tests #6 and #10 downstream
@@ -242,7 +244,7 @@ All 10 must be green for mentor demo. Verified in milestone close.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| A. SignalBackend Protocol | 0/0 | Not started | - |
+| A. SignalBackend Protocol | 0/1 | Not started | - |
 | B. Config & Universe | 0/0 | Not started | - |
 | C. Streamlit Single-Ticker Explorer | 0/0 | Not started | - |
 | D. Multi-Ticker Cross-Sectional | 0/0 | Not started | - |
