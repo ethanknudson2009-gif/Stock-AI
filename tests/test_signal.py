@@ -6,13 +6,18 @@ from stock_ai.strategy.signal import generate_signals
 
 
 class _StubModel:
-    """Deterministic probability-returning stub so threshold logic can be tested in isolation."""
+    """Deterministic SignalBackend-conforming stub so threshold logic can be tested in isolation."""
+
+    name: str = "stub"
 
     def __init__(self, probas_up):
-        self._probas = np.asarray(probas_up)
+        self._probas = np.asarray(probas_up, dtype=float)
 
-    def predict_proba(self, X):
-        return np.column_stack([1 - self._probas, self._probas])
+    def fit(self, X, y) -> None:
+        return None
+
+    def predict_proba_up(self, X):
+        return pd.Series(self._probas, index=X.index, name="proba_up")
 
 
 def _frame(n: int) -> pd.DataFrame:

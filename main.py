@@ -7,6 +7,7 @@ from stock_ai.backtest.engine import run_backtest
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.features.indicators import add_features
 from stock_ai.models.classifier import train_model
+from stock_ai.models.rf_backend import RandomForestBackend
 from stock_ai.strategy.signal import generate_signals
 
 
@@ -35,11 +36,12 @@ def cmd_backtest(args):
     df = fetch_price_history(args.ticker, args.start, args.end)
     df = add_features(df)
     model, accuracy, train_df, test_df = train_model(df)
+    backend = RandomForestBackend.from_fitted(model)
 
-    oos_positions = generate_signals(model, test_df, threshold=args.threshold)
+    oos_positions = generate_signals(backend, test_df, threshold=args.threshold)
     oos_results = run_backtest(test_df, oos_positions, cost_bps=args.cost_bps)
 
-    is_positions = generate_signals(model, train_df, threshold=args.threshold)
+    is_positions = generate_signals(backend, train_df, threshold=args.threshold)
     is_results = run_backtest(train_df, is_positions, cost_bps=args.cost_bps)
 
     print(f"Test accuracy: {accuracy:.2%}  (threshold: {args.threshold:.2f})\n")
