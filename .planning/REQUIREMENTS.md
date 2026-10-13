@@ -67,12 +67,12 @@ From `research/ARCHITECTURE.md` Phase E — ports-and-adapters pattern so bot st
 
 From `PROJECT.md` v1 scope + `research/ARCHITECTURE.md` Phase F + `research/PITFALLS.md` #1, #2, #7.
 
-- [ ] **AP-01**: `stock_ai/execution/paper.py` is the sole module importing `alpaca-py`
-- [ ] **AP-02**: `AlpacaPaperBroker` conforms to `Broker` Protocol
-- [ ] **AP-03**: `TradingClient(..., paper=True)` on construction; base-URL assertion that `paper-api` is in the URL (prevents live-endpoint accidents)
-- [ ] **AP-04**: Idempotent order submission — `client_order_id = f"{eastern_date}_{ticker}_{side}"` so Streamlit reruns can't double-submit
-- [ ] **AP-05**: All timezones handled via `zoneinfo.ZoneInfo("America/New_York")` — no naive `datetime.today()`
-- [ ] **AP-06**: Pre-flight `get_asset(ticker)` checks tradability and fractional-share eligibility before submitting
+- [x] **AP-01**: `stock_ai/execution/paper.py` is the sole module importing `alpaca-py`
+- [x] **AP-02**: `AlpacaPaperBroker` conforms to `Broker` Protocol
+- [x] **AP-03**: `TradingClient(..., paper=True)` on construction; base-URL assertion that `paper-api` is in the URL (prevents live-endpoint accidents)
+- [x] **AP-04**: Idempotent order submission — `client_order_id = f"{eastern_date}_{ticker}_{side}"` so Streamlit reruns can't double-submit
+- [x] **AP-05**: All timezones handled via `zoneinfo.ZoneInfo("America/New_York")` — no naive `datetime.today()`
+- [x] **AP-06**: Pre-flight `get_asset(ticker)` checks tradability and fractional-share eligibility before submitting
 
 ### EOD Bot Loop (BL)
 

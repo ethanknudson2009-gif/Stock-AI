@@ -7,11 +7,18 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class Order:
-    """A single intended trade. `client_order_id` makes submission idempotent."""
+    """A single intended trade. `client_order_id` makes submission idempotent.
+
+    `notional` (dollar amount) sizes a buy; `qty` (share count) sizes either side.
+    Both default to None — the FakeBroker and order-diff ignore them; the live
+    Alpaca adapter requires one to be set before it will submit.
+    """
 
     ticker: str
     side: str  # "buy" or "sell"
     client_order_id: str
+    notional: float | None = None
+    qty: float | None = None
 
 
 def make_client_order_id(day: date, ticker: str, side: str) -> str:

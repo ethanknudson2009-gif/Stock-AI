@@ -18,7 +18,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 - [x] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
 - [x] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
 - [x] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
-- [ ] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
+- [x] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
 - [ ] **Phase G: EOD Bot Loop** — `bot.py` wires everything into a daily paper-trade loop
 - [ ] **Phase H: Jev Signal Backend** — second `SignalBackend` + RF-vs-Jev comparison in UI
 
@@ -137,7 +137,9 @@ Plans:
   3. `trading_day_today()` returns the correct Eastern-time trading date even when the system clock is in PT at 11:59pm local
   4. Pre-flight `get_asset()` check rejects non-tradable tickers before any `submit_order` call reaches Alpaca
   5. `stock_ai/execution/paper.py` is the ONLY module in the repo that imports from `alpaca-py`
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] F-01 — AlpacaPaperBroker (paper-endpoint assert, idempotent, pre-flight) + Eastern clock (see F-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #1 (Live endpoint) — hard assertion in `__init__`
   - Pitfall #2 (Non-idempotent submission) — deterministic `client_order_id`
