@@ -4,7 +4,7 @@ import streamlit as st
 
 from stock_ai.backtest.engine import run_backtest
 from stock_ai.strategy.signal import generate_signals
-from ui_common import SETTINGS, hero, inject_css, metrics_row, price_chart, train
+from ui_common import SETTINGS, candle_chart, equity_chart, eyebrow, hero, inject_css, metrics_row, train
 
 st.set_page_config(page_title="Single Ticker · Stock AI", page_icon="📈", layout="wide")
 inject_css()
@@ -44,7 +44,13 @@ delta = oos["total_return"] - oos["buy_hold_return"]
 (st.success if delta >= 0 else st.warning)(
     f"Strategy {'beat' if delta >= 0 else 'trailed'} buy & hold by {abs(delta):.1%} out-of-sample."
 )
-st.plotly_chart(price_chart(test_df, oos_positions), width="stretch")
+left, right = st.columns([3, 2])
+with left:
+    eyebrow("Chart · Price action")
+    st.plotly_chart(candle_chart(test_df, oos_positions), width="stretch")
+with right:
+    eyebrow("Chart · Equity curve")
+    st.plotly_chart(equity_chart(oos["cumulative_returns"]), width="stretch")
 
 with st.expander("⚠️ In-sample (training data — overfitting-prone, not a real result)"):
     st.caption(f"{train_df.index[0].date()} → {train_df.index[-1].date()} — the model saw this data, so it flatters.")

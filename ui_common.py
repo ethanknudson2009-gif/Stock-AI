@@ -4,8 +4,10 @@ One place for the brand palette and the Streamlit caches so every page looks and
 behaves identically. Kept import-light: no trading happens at import time.
 """
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yfinance as yf
 from dotenv import load_dotenv
 
 from stock_ai.backtest.multi_engine import backtest_universe
@@ -122,6 +124,30 @@ def inject_css() -> None:
         .stAlert {{ border-radius:9px; border:1px solid {BORDER}; }}
         .eyebrow {{ color:{MAGENTA}; font-family:'Share Tech Mono',monospace; font-size:.66rem;
             letter-spacing:2px; text-transform:uppercase; }}
+
+        /* Smooth interactions */
+        .stButton > button, .stFormSubmitButton > button, .tos-tile, .mkt-card,
+        [data-testid="stVerticalBlockBorderWrapper"] {{ transition: transform .14s ease, box-shadow .2s ease, border-color .2s ease; }}
+        .stButton > button:hover, .stFormSubmitButton > button:hover {{ transform: translateY(-1px); }}
+        .tos-tile:hover {{ transform: translateY(-2px); border-color:{GOLD}; }}
+        [data-testid="stVerticalBlockBorderWrapper"]:hover {{ border-color:{GOLD} !important;
+            box-shadow:0 0 0 1px rgba(34,227,255,0.25), 0 10px 34px rgba(0,0,0,0.5); transform: translateY(-2px); }}
+
+        /* Live market grid */
+        .mkt-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+            gap:12px; margin:.2rem 0 1rem; }}
+        .mkt-card {{ background:linear-gradient(160deg, rgba(34,227,255,0.05), rgba(255,46,154,0.04)), {PANEL};
+            border:1px solid {BORDER}; border-radius:12px; padding:.7rem .8rem .5rem; }}
+        .mkt-card:hover {{ transform:translateY(-3px); border-color:{GOLD};
+            box-shadow:0 0 0 1px rgba(34,227,255,0.25), 0 10px 26px rgba(0,0,0,0.5); }}
+        .mkt-top {{ display:flex; justify-content:space-between; align-items:center; }}
+        .mkt-tkr {{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:.92rem;
+            color:{TAN}; letter-spacing:.5px; }}
+        .mkt-chg {{ font-family:'Share Tech Mono',monospace; font-size:.76rem; font-weight:700; }}
+        .mkt-price {{ font-family:'Share Tech Mono',monospace; font-size:1.25rem; color:{TAN};
+            margin:.15rem 0 .1rem; }}
+        .mkt-spark {{ line-height:0; margin-top:.2rem; }}
+        .mkt-spark svg {{ width:100%; height:38px; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -261,3 +287,111 @@ def get_broker():
         return AlpacaPaperBroker(), "Alpaca paper account"
     except Exception:  # noqa: BLE001
         return FakeBroker(), "FakeBroker (no Alpaca keys — demo only, empty positions)"
+
+
+# --------------------------------------------------------------------------
+# Live market overview (watchlist sparklines) — fills the dashboard with real data
+# --------------------------------------------------------------------------
+
+WATCHLIST = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM"]
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def watchlist_quotes(tickers=tuple(WATCHLIST), period="6mo"):
+    """Batch-fetch recent closes and return per-ticker quote dicts.
+
+    Returns [{ticker, last, pct, spark:[floats]}] sorted by % change desc.
+    One cached yfinance call for the whole list; empty on failure (UI degrades).
+    """
+    try:
+        data = yf.download(list(tickers), period=period, auto_adjust=True,
+                           progress=False, group_by="ticker")
+    except Exception:  # noqa: BLE001
+        return []
+
+    quotes = []
+    for t in tickers:
+        try:
+            close = data[t]["Close"].dropna() if (t in data) else pd.Series(dtype=float)
+            if close.empty:
+                continue
+            spark = close.tail(60).tolist()
+            last = float(close.iloc[-1])
+            prev = float(close.iloc[-2]) if len(close) > 1 else last
+            pct = (last / prev - 1) * 100 if prev else 0.0
+            quotes.append({"ticker": t, "last": last, "pct": pct, "spark": spark})
+        except Exception:  # noqa: BLE001
+            continue
+    quotes.sort(key=lambda q: q["pct"], reverse=True)
+    return quotes
+
+
+def _sparkline_svg(values, color, w=150, h=38):
+    """Return a compact neon sparkline SVG (area + glowing line) for `values`."""
+    if not values or len(values) < 2:
+        return ""
+    lo, hi = min(values), max(values)
+    rng = (hi - lo) or 1.0
+    n = len(values)
+    pts = [(i / (n - 1) * w, h - 3 - (v - lo) / rng * (h - 6)) for i, v in enumerate(values)]
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = f"0,{h} " + line + f" {w},{h}"
+    uid = f"g{abs(hash(tuple(values))) % 100000}"
+    return (
+        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+        f'<defs><linearGradient id="{uid}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.35"/>'
+        f'<stop offset="100%" stop-color="{color}" stop-opacity="0"/></linearGradient></defs>'
+        f'<polygon points="{area}" fill="url(#{uid})"/>'
+        f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="1.8" '
+        f'stroke-linejoin="round" stroke-linecap="round" '
+        f'style="filter:drop-shadow(0 0 4px {color})"/></svg>'
+    )
+
+
+def market_cards(quotes):
+    """Render a responsive grid of neon watchlist cards with sparklines."""
+    if not quotes:
+        st.info("Market data unavailable right now — try again shortly.")
+        return
+    cells = []
+    for q in quotes:
+        up = q["pct"] >= 0
+        color = GREEN if up else RED
+        arrow = "▲" if up else "▼"
+        cells.append(
+            f'<div class="mkt-card">'
+            f'<div class="mkt-top"><span class="mkt-tkr">{q["ticker"]}</span>'
+            f'<span class="mkt-chg" style="color:{color}">{arrow} {abs(q["pct"]):.2f}%</span></div>'
+            f'<div class="mkt-price">${q["last"]:,.2f}</div>'
+            f'<div class="mkt-spark">{_sparkline_svg(q["spark"], color)}</div>'
+            f'</div>'
+        )
+    st.markdown(f'<div class="mkt-grid">{"".join(cells)}</div>', unsafe_allow_html=True)
+
+
+def eyebrow(text):
+    """Small magenta uppercase section label."""
+    st.markdown(f'<span class="eyebrow">{text}</span>', unsafe_allow_html=True)
+
+
+def candle_chart(df, positions=None):
+    """Candlestick chart (neon up/down) with optional buy/sell markers on Close."""
+    tail = df.tail(260)  # keep it readable/fast
+    fig = go.Figure(go.Candlestick(
+        x=tail.index, open=tail["Open"], high=tail["High"], low=tail["Low"], close=tail["Close"],
+        increasing=dict(line=dict(color=GREEN), fillcolor=GREEN),
+        decreasing=dict(line=dict(color=RED), fillcolor=RED), name="OHLC"))
+    if positions is not None:
+        p = positions.reindex(tail.index).fillna(0)
+        changes = p.diff().fillna(p)
+        buys, sells = tail.index[changes == 1], tail.index[changes == -1]
+        fig.add_trace(go.Scatter(x=buys, y=tail.loc[buys, "Low"] * 0.985, mode="markers",
+            name="Buy", marker=dict(symbol="triangle-up", size=11, color=GOLD,
+            line=dict(width=1, color=TAN))))
+        fig.add_trace(go.Scatter(x=sells, y=tail.loc[sells, "High"] * 1.015, mode="markers",
+            name="Sell", marker=dict(symbol="triangle-down", size=11, color=MAGENTA,
+            line=dict(width=1, color=TAN))))
+    fig.update_layout(xaxis_rangeslider_visible=False)
+    _style_fig(fig, "Price ($)")
+    return fig
