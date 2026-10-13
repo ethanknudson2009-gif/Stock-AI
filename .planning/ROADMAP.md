@@ -15,7 +15,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 
 - [x] **Phase A: SignalBackend Protocol** — load-bearing refactor that unblocks every other phase
 - [x] **Phase B: Config & Universe** — dotenv secrets + default large-cap universe
-- [ ] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
+- [x] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
 - [ ] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
 - [ ] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
 - [ ] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
@@ -76,7 +76,9 @@ Plans:
   3. Moving a slider or editing an input does NOT re-fetch data or re-train the model until the user clicks "Run Backtest" (form gating works)
   4. A Plotly price chart renders with buy/sell markers from the test slice
   5. Triggering an exception (bad ticker, empty range) surfaces a redacted `st.error` — the Streamlit traceback does not leak API keys
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] C-01 — app.py Streamlit explorer: st.form + caching, honest metrics incl. max drawdown, Plotly buy/sell chart, redacted errors (see C-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #6 (Rerun thrash) — `st.form` + `@st.cache_data` + `@st.cache_resource` are non-negotiable
   - Pitfall #9 (`st.secrets` vs `.env`) — reinforced; only `load_dotenv()` in `app.py`

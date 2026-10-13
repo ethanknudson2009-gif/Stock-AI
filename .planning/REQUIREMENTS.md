@@ -34,14 +34,14 @@ From `research/STACK.md` + `research/PITFALLS.md` #9. Dotenv-only secrets; unive
 
 From `PROJECT.md` v1 scope + `research/FEATURES.md` table-stakes + `research/PITFALLS.md` #6, #10.
 
-- [ ] **UI-01**: `app.py` at project root launches via `streamlit run app.py` on `localhost:8501`
-- [ ] **UI-02**: Inputs: ticker (single or multi), date range, cost (bps), confidence threshold, model backend selector (RandomForest / Jev)
-- [ ] **UI-03**: Inputs wrapped in `st.form` so backtest only runs on explicit submit (no rerun thrash on slider moves)
-- [ ] **UI-04**: `@st.cache_data` on price-history fetch; `@st.cache_resource` on trained models
-- [ ] **UI-05**: Results view shows: test accuracy, OOS return, buy-and-hold return, Sharpe, trade count, max drawdown
-- [ ] **UI-06**: In-sample vs out-of-sample results clearly separated (same honesty as current CLI)
-- [ ] **UI-07**: Interactive price chart (Plotly) with buy/sell markers on the test slice
-- [ ] **UI-08**: `showErrorDetails = false` in Streamlit config to prevent secret leakage in tracebacks
+- [x] **UI-01**: `app.py` at project root launches via `streamlit run app.py` on `localhost:8501`
+- [x] **UI-02**: Inputs: ticker (single or multi), date range, cost (bps), confidence threshold, model backend selector (RandomForest / Jev)
+- [x] **UI-03**: Inputs wrapped in `st.form` so backtest only runs on explicit submit (no rerun thrash on slider moves)
+- [x] **UI-04**: `@st.cache_data` on price-history fetch; `@st.cache_resource` on trained models
+- [x] **UI-05**: Results view shows: test accuracy, OOS return, buy-and-hold return, Sharpe, trade count, max drawdown
+- [x] **UI-06**: In-sample vs out-of-sample results clearly separated (same honesty as current CLI)
+- [x] **UI-07**: Interactive price chart (Plotly) with buy/sell markers on the test slice
+- [x] **UI-08**: `showErrorDetails = false` in Streamlit config to prevent secret leakage in tracebacks
 
 ### Multi-Ticker Cross-Sectional Strategy (MT)
 

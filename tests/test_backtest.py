@@ -32,3 +32,18 @@ def test_zero_trades_means_zero_cost_impact():
     assert 0.009 < gap < 0.013, (
         f"single 100-bps entry should cost ~1% (compounded); got {gap:.4%}"
     )
+
+
+def test_max_drawdown_measures_peak_to_trough():
+    import pandas as pd
+
+    from stock_ai.backtest.engine import run_backtest
+
+    idx = pd.date_range("2024-01-01", periods=4, freq="B")
+    # Always long: equity goes 1.10 -> 0.88 -> 0.968 ; trough is 20% below the 1.10 peak.
+    df = pd.DataFrame({"return_1d": [0.10, -0.20, 0.10, 0.0]}, index=idx)
+    positions = pd.Series([1, 1, 1, 1], index=idx)
+    positions_shift_safe = positions  # run_backtest shifts by 1, first day is flat
+    result = run_backtest(df, positions_shift_safe, cost_bps=0)
+    assert result["max_drawdown"] <= 0
+    assert abs(result["max_drawdown"] - (-0.20)) < 1e-9

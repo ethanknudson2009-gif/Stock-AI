@@ -29,11 +29,13 @@ def run_backtest(
     total_return = cumulative.iloc[-1] - 1
     buy_hold_return = buy_hold.iloc[-1] - 1
     sharpe = _sharpe_ratio(strategy_returns)
+    max_drawdown = _max_drawdown(cumulative)
 
     return {
         "total_return": total_return,
         "buy_hold_return": buy_hold_return,
         "sharpe_ratio": sharpe,
+        "max_drawdown": max_drawdown,
         "cumulative_returns": cumulative,
         "n_trades": int(trades.sum()),
         "cost_bps": cost_bps,
@@ -44,3 +46,9 @@ def _sharpe_ratio(returns: pd.Series, periods_per_year: int = 252) -> float:
     if returns.std() == 0:
         return 0.0
     return (returns.mean() / returns.std()) * (periods_per_year ** 0.5)
+
+
+def _max_drawdown(cumulative: pd.Series) -> float:
+    """Largest peak-to-trough drop of the equity curve, as a negative fraction (e.g. -0.25)."""
+    running_peak = cumulative.cummax().clip(lower=1.0)
+    return float((cumulative / running_peak - 1).min())

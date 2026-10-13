@@ -8,6 +8,8 @@ venv/
 
 # Env / secrets
 .env
+.env.local
+.streamlit/secrets.toml
 
 # Data & model artifacts
 data/raw/
@@ -22,5 +24,3 @@ models/*.joblib
 .DS_Store
 .vscode/
 .idea/
-.env.local
-.streamlit/secrets.toml

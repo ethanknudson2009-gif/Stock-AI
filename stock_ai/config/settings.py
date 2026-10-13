@@ -36,6 +36,14 @@ class Settings:
 
     __str__ = __repr__
 
+    def scrub(self, text: str) -> str:
+        """Replace any secret value that appears inside `text` with its redacted form."""
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value:
+                text = text.replace(value, _redact(value).strip("'"))
+        return text
+
 
 def load_settings(environ: dict[str, str] | None = None) -> Settings:
     """Build Settings from `environ` (defaults to os.environ). Empty strings count as unset."""

@@ -51,3 +51,15 @@ def test_env_example_documents_every_settings_key():
     example = (REPO_ROOT / ".env.example").read_text()
     for key in ("ANTHROPIC_API_KEY", "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "TYPESAFE_API_KEY"):
         assert key in example
+
+
+def test_settings_scrub_removes_secret_from_error_text():
+    s = Settings(alpaca_api_key="PKREALKEY12345678")
+    msg = s.scrub("401 Unauthorized for key PKREALKEY12345678 at /v2/orders")
+    assert "PKREALKEY" not in msg
+    assert "****5678" in msg
+
+
+def test_streamlit_config_hides_error_details():
+    config = (REPO_ROOT / ".streamlit" / "config.toml").read_text()
+    assert re.search(r"showErrorDetails\s*=\s*(false|\"none\")", config)
