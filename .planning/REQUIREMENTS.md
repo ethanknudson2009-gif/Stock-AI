@@ -47,12 +47,12 @@ From `PROJECT.md` v1 scope + `research/FEATURES.md` table-stakes + `research/PIT
 
 From `PROJECT.md` v1 scope + `research/ARCHITECTURE.md` Phase D + `research/PITFALLS.md` #3, #4, #5.
 
-- [ ] **MT-01**: `stock_ai/backtest/multi_engine.py` runs per-ticker legs then combines into a portfolio return series (NOT averaging per-ticker Sharpes)
-- [ ] **MT-02**: `stock_ai/strategy/ranker.py` provides `top_n(predictions, n)` for cross-sectional top-N selection
-- [ ] **MT-03**: Canonical NYSE trading-calendar reindex applied before any multi-ticker alignment (prevents silent lookahead from mismatched indices)
-- [ ] **MT-04**: Portfolio-level Sharpe computed on the combined daily return series, not averaged across tickers
-- [ ] **MT-05**: Single-ticker CLI from Phase SB continues to work unchanged
-- [ ] **MT-06**: Default universe size + date range chosen so survivorship bias is bounded (short windows, documented limitation)
+- [x] **MT-01**: `stock_ai/backtest/multi_engine.py` runs per-ticker legs then combines into a portfolio return series (NOT averaging per-ticker Sharpes)
+- [x] **MT-02**: `stock_ai/strategy/ranker.py` provides `top_n(predictions, n)` for cross-sectional top-N selection
+- [x] **MT-03**: Canonical NYSE trading-calendar reindex applied before any multi-ticker alignment (prevents silent lookahead from mismatched indices)
+- [x] **MT-04**: Portfolio-level Sharpe computed on the combined daily return series, not averaged across tickers
+- [x] **MT-05**: Single-ticker CLI from Phase SB continues to work unchanged
+- [x] **MT-06**: Default universe size + date range chosen so survivorship bias is bounded (short windows, documented limitation)
 
 ### Broker Abstraction (BR)
 

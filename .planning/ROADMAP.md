@@ -16,7 +16,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 - [x] **Phase A: SignalBackend Protocol** — load-bearing refactor that unblocks every other phase
 - [x] **Phase B: Config & Universe** — dotenv secrets + default large-cap universe
 - [x] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
-- [ ] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
+- [x] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
 - [ ] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
 - [ ] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
 - [ ] **Phase G: EOD Bot Loop** — `bot.py` wires everything into a daily paper-trade loop
@@ -98,7 +98,9 @@ Plans:
   3. Portfolio return series has zero unexplained NaN days — every ticker is reindexed to a canonical NYSE trading calendar before aggregation
   4. The single-ticker CLI (`python main.py backtest --ticker AAPL`) still produces identical output to Phase A's checkpoint
   5. UI labels portfolio Sharpe explicitly as "Portfolio Sharpe (equal-weight top-N, daily rebalance)" — never bare "Sharpe"
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] D-01 — ranker.top_n + multi_engine (canonical calendar, portfolio-return Sharpe), UI multi-ticker mode (see D-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #3 (Average-of-Sharpes) — true portfolio-return series required; anti-regression test mandatory
   - Pitfall #4 (Survivorship bias) — short-window default + README/UI disclosure

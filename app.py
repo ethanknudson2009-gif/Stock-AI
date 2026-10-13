@@ -13,7 +13,8 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from stock_ai.backtest.engine import run_backtest
-from stock_ai.config import load_settings
+from stock_ai.backtest.multi_engine import backtest_universe
+from stock_ai.config import DEFAULT_UNIVERSE, load_settings
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.features.indicators import add_features
 from stock_ai.models.classifier import train_model
@@ -44,6 +45,39 @@ def _train(ticker: str, start: str, end: str):
     df = _load_prices(ticker, start, end)
     model, accuracy, train_df, test_df = train_model(df)
     return RandomForestBackend.from_fitted(model), accuracy, train_df, test_df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _run_universe(tickers: tuple[str, ...], start: str, end: str, top_n: int, cost_bps: float):
+    """Cached multi-ticker cross-sectional backtest. Returns (results, equity_curve)."""
+    frames = {}
+    skipped = []
+    for ticker in tickers:
+        try:
+            frames[ticker] = _load_prices(ticker, start, end)
+        except Exception:  # noqa: BLE001 — a bad/empty ticker shouldn't sink the run
+            skipped.append(ticker)
+    results, _proba, _returns = backtest_universe(
+        frames, RandomForestBackend, top_n_count=top_n, cost_bps=cost_bps
+    )
+    return results, results["cumulative_returns"], skipped
+
+
+def _equity_chart(cumulative):
+    """Plotly equity curve for the portfolio (growth of $1)."""
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(
+            x=cumulative.index, y=cumulative, mode="lines",
+            name="Portfolio", line=dict(color="#4c78a8"),
+        )
+    )
+    fig.update_layout(
+        height=430, margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", y=1.02, yanchor="bottom"),
+        xaxis_title=None, yaxis_title="Growth of $1",
+    )
+    return fig
 
 
 def _price_chart(test_df, positions):
@@ -81,11 +115,18 @@ def _price_chart(test_df, positions):
 with st.sidebar:
     st.header("Backtest settings")
     with st.form("backtest_form"):
-        ticker = st.text_input("Ticker", value="AAPL").strip().upper()
+        mode = st.radio("Mode", ["Single ticker", "Multi-ticker (cross-sectional)"])
+        ticker = st.text_input("Ticker (single-ticker mode)", value="AAPL").strip().upper()
+        tickers_raw = st.text_area(
+            "Tickers (multi-ticker mode, comma-separated — blank = Default Universe)",
+            value="",
+            help=f"Default Universe = {len(DEFAULT_UNIVERSE)} large-cap US stocks.",
+        )
+        top_n = st.slider("Top-N held (multi-ticker mode)", 1, 15, 5, 1)
         start = st.text_input("Start date (YYYY-MM-DD)", value="2015-01-01")
         end = st.text_input("End date (YYYY-MM-DD)", value="2026-10-12")
         cost_bps = st.slider("Cost per trade (bps)", 0.0, 50.0, 10.0, 1.0)
-        threshold = st.slider("Confidence threshold", 0.50, 0.70, 0.50, 0.01)
+        threshold = st.slider("Confidence threshold (single-ticker mode)", 0.50, 0.70, 0.50, 0.01)
         backend_choice = st.selectbox("Model backend", ["RandomForest", "Jev (coming in Phase H)"])
         submitted = st.form_submit_button("Run Backtest", width='stretch')
 
@@ -95,18 +136,6 @@ if not submitted:
 
 if backend_choice.startswith("Jev"):
     st.warning("The Jev backend isn't built yet (Phase H). Running RandomForest instead.")
-
-try:
-    with st.spinner(f"Fetching {ticker} and training…"):
-        backend, accuracy, train_df, test_df = _train(ticker, start, end)
-
-        oos_positions = generate_signals(backend, test_df, threshold=threshold)
-        oos = run_backtest(test_df, oos_positions, cost_bps=cost_bps)
-        is_positions = generate_signals(backend, train_df, threshold=threshold)
-        is_results = run_backtest(train_df, is_positions, cost_bps=cost_bps)
-except Exception as exc:  # noqa: BLE001 — surface a redacted message, never a raw traceback
-    st.error(SETTINGS.scrub(f"Backtest failed: {type(exc).__name__}: {exc}"))
-    st.stop()
 
 
 def _metrics_row(res, accuracy=None):
@@ -120,6 +149,58 @@ def _metrics_row(res, accuracy=None):
     cols[3].metric("Sharpe", f"{res['sharpe_ratio']:.2f}")
     cols[4].metric("Max drawdown", f"{res['max_drawdown']:.1%}")
     st.caption(f"{res['n_trades']} trades @ {res['cost_bps']:.0f} bps")
+
+
+if mode.startswith("Multi"):
+    tickers = tuple(
+        t.strip().upper() for t in tickers_raw.replace("\n", ",").split(",") if t.strip()
+    ) or tuple(DEFAULT_UNIVERSE)
+    try:
+        with st.spinner(f"Fetching & training {len(tickers)} tickers…"):
+            res, equity, skipped = _run_universe(tickers, start, end, top_n, cost_bps)
+    except Exception as exc:  # noqa: BLE001 — surface a redacted message, never a raw traceback
+        st.error(SETTINGS.scrub(f"Backtest failed: {type(exc).__name__}: {exc}"))
+        st.stop()
+
+    st.subheader("✅ Portfolio out-of-sample (honest)")
+    st.caption(
+        f"Equal-weight top-{top_n}, daily rebalance, {res['n_days']} sessions. "
+        f"Held ~{res['avg_positions']:.1f} names/day. "
+        "Survivorship-biased: the universe is a current snapshot."
+    )
+    cols = st.columns(4)
+    cols[0].metric("Portfolio return", f"{res['total_return']:.1%}")
+    cols[1].metric("Equal-weight-all", f"{res['buy_hold_return']:.1%}")
+    cols[2].metric("Portfolio Sharpe", f"{res['portfolio_sharpe']:.2f}")
+    cols[3].metric("Max drawdown", f"{res['max_drawdown']:.1%}")
+    st.caption(
+        "Portfolio Sharpe (equal-weight top-N, daily rebalance) — computed on the "
+        "combined daily return series, not an average of per-ticker Sharpes."
+    )
+    if skipped:
+        st.warning(f"Skipped (no data): {', '.join(skipped)}")
+
+    delta = res["total_return"] - res["buy_hold_return"]
+    (st.success if delta >= 0 else st.warning)(
+        f"Top-{top_n} strategy {'beat' if delta >= 0 else 'trailed'} the "
+        f"equal-weight-all benchmark by {abs(delta):.1%}."
+    )
+    st.plotly_chart(_equity_chart(equity), width='stretch')
+    st.stop()
+
+
+# ---- Single-ticker mode ----
+try:
+    with st.spinner(f"Fetching {ticker} and training…"):
+        backend, accuracy, train_df, test_df = _train(ticker, start, end)
+
+        oos_positions = generate_signals(backend, test_df, threshold=threshold)
+        oos = run_backtest(test_df, oos_positions, cost_bps=cost_bps)
+        is_positions = generate_signals(backend, train_df, threshold=threshold)
+        is_results = run_backtest(train_df, is_positions, cost_bps=cost_bps)
+except Exception as exc:  # noqa: BLE001 — surface a redacted message, never a raw traceback
+    st.error(SETTINGS.scrub(f"Backtest failed: {type(exc).__name__}: {exc}"))
+    st.stop()
 
 
 st.subheader("✅ Out-of-sample (honest)")
