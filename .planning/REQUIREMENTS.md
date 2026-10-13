@@ -78,13 +78,13 @@ From `PROJECT.md` v1 scope + `research/ARCHITECTURE.md` Phase F + `research/PITF
 
 From `research/ARCHITECTURE.md` Phase G + `research/PITFALLS.md` #8.
 
-- [ ] **BL-01**: `bot.py` at project root exposes `run_eod(broker)` for scheduled or manual invocation
-- [ ] **BL-02**: Hard cap on per-order $ amount (configurable, default $500 on paper)
-- [ ] **BL-03**: Hard cap on daily order count (configurable, default 20)
-- [ ] **BL-04**: `KILL_SWITCH` file at repo root halts order submission on sight
-- [ ] **BL-05**: Default `DRY_RUN=true` — must be explicitly set `false` in `.env` to place paper orders
-- [ ] **BL-06**: Two-step UI flow: "Preview orders" → "Confirm & submit"
-- [ ] **BL-07**: `pytest-socket` test proves `import bot` makes zero network calls
+- [x] **BL-01**: `bot.py` at project root exposes `run_eod(broker)` for scheduled or manual invocation
+- [x] **BL-02**: Hard cap on per-order $ amount (configurable, default $500 on paper)
+- [x] **BL-03**: Hard cap on daily order count (configurable, default 20)
+- [x] **BL-04**: `KILL_SWITCH` file at repo root halts order submission on sight
+- [x] **BL-05**: Default `DRY_RUN=true` — must be explicitly set `false` in `.env` to place paper orders
+- [x] **BL-06**: Two-step UI flow: "Preview orders" → "Confirm & submit"
+- [x] **BL-07**: `pytest-socket` test proves `import bot` makes zero network calls
 
 ### Jev Signal Backend (JV)
 

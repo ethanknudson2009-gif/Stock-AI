@@ -12,14 +12,27 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
+import bot
 from stock_ai.backtest.engine import run_backtest
 from stock_ai.backtest.multi_engine import backtest_universe
 from stock_ai.config import DEFAULT_UNIVERSE, load_settings
 from stock_ai.data.loader import fetch_price_history
+from stock_ai.execution import FakeBroker
 from stock_ai.features.indicators import add_features
 from stock_ai.models.classifier import train_model
 from stock_ai.models.rf_backend import RandomForestBackend
 from stock_ai.strategy.signal import generate_signals
+
+
+def _get_broker():
+    """Return (broker, label). Prefer the real Alpaca paper broker; fall back to a
+    demo FakeBroker when keys are missing so the preview flow still works offline."""
+    try:
+        from stock_ai.execution.paper import AlpacaPaperBroker
+
+        return AlpacaPaperBroker(), "Alpaca paper account"
+    except Exception:  # noqa: BLE001 — no/invalid keys → safe demo broker
+        return FakeBroker(), "FakeBroker (no Alpaca keys — demo only, empty positions)"
 
 load_dotenv()
 SETTINGS = load_settings()
@@ -115,7 +128,10 @@ def _price_chart(test_df, positions):
 with st.sidebar:
     st.header("Backtest settings")
     with st.form("backtest_form"):
-        mode = st.radio("Mode", ["Single ticker", "Multi-ticker (cross-sectional)"])
+        mode = st.radio(
+            "Mode",
+            ["Single ticker", "Multi-ticker (cross-sectional)", "Paper trade (preview)"],
+        )
         ticker = st.text_input("Ticker (single-ticker mode)", value="AAPL").strip().upper()
         tickers_raw = st.text_area(
             "Tickers (multi-ticker mode, comma-separated — blank = Default Universe)",
@@ -128,7 +144,8 @@ with st.sidebar:
         cost_bps = st.slider("Cost per trade (bps)", 0.0, 50.0, 10.0, 1.0)
         threshold = st.slider("Confidence threshold (single-ticker mode)", 0.50, 0.70, 0.50, 0.01)
         backend_choice = st.selectbox("Model backend", ["RandomForest", "Jev (coming in Phase H)"])
-        submitted = st.form_submit_button("Run Backtest", width='stretch')
+        submit_label = "Preview orders" if mode.startswith("Paper") else "Run Backtest"
+        submitted = st.form_submit_button(submit_label, width='stretch')
 
 if not submitted:
     st.info("Set your options in the sidebar and click **Run Backtest**.")
@@ -149,6 +166,54 @@ def _metrics_row(res, accuracy=None):
     cols[3].metric("Sharpe", f"{res['sharpe_ratio']:.2f}")
     cols[4].metric("Max drawdown", f"{res['max_drawdown']:.1%}")
     st.caption(f"{res['n_trades']} trades @ {res['cost_bps']:.0f} bps")
+
+
+if mode.startswith("Paper"):
+    universe = [
+        t.strip().upper() for t in tickers_raw.replace("\n", ",").split(",") if t.strip()
+    ] or list(DEFAULT_UNIVERSE)
+    broker, broker_label = _get_broker()
+    st.subheader("🧾 Paper trade — preview & confirm")
+    st.caption(f"Broker: {broker_label}")
+    dry = bot.dry_run_enabled()
+    (st.info if dry else st.warning)(
+        "DRY_RUN is ON — orders will be logged, not sent."
+        if dry else
+        "DRY_RUN is OFF — confirming will place real paper orders."
+    )
+
+    try:
+        with st.spinner(f"Computing today's signals for {len(universe)} tickers…"):
+            orders = bot.plan_orders(broker, universe=universe, top_n_count=top_n)
+            bot.enforce_caps(orders)
+    except Exception as exc:  # noqa: BLE001 — redacted, never a raw traceback
+        st.error(SETTINGS.scrub(f"Could not build orders: {type(exc).__name__}: {exc}"))
+        st.stop()
+
+    st.session_state["pending_orders"] = orders
+    if not orders:
+        st.success("No changes needed — target holdings already match current positions.")
+        st.stop()
+
+    st.write(f"**{len(orders)} intended orders** for {bot.trading_day_today()}:")
+    st.table(
+        [{"ticker": o.ticker, "side": o.side, "notional": o.notional, "qty": o.qty} for o in orders]
+    )
+
+    if st.button("Confirm & submit", type="primary"):
+        pending = st.session_state.get("pending_orders") or []
+        try:
+            result = bot.submit_orders(broker, pending)  # submits EXACTLY what was previewed
+        except Exception as exc:  # noqa: BLE001
+            st.error(SETTINGS.scrub(f"Submit failed: {type(exc).__name__}: {exc}"))
+            st.stop()
+        if result["status"] == "dry_run":
+            st.success(f"DRY_RUN: logged {result['planned']} orders to logs/orders.csv — none sent.")
+        elif result["status"] == "halted":
+            st.error(f"Halted: {result['reason']}.")
+        else:
+            st.success(f"Submitted {result['submitted']} paper orders.")
+    st.stop()
 
 
 if mode.startswith("Multi"):

@@ -19,7 +19,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 - [x] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
 - [x] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
 - [x] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
-- [ ] **Phase G: EOD Bot Loop** — `bot.py` wires everything into a daily paper-trade loop
+- [x] **Phase G: EOD Bot Loop** — `bot.py` wires everything into a daily paper-trade loop
 - [ ] **Phase H: Jev Signal Backend** — second `SignalBackend` + RF-vs-Jev comparison in UI
 
 ---
@@ -159,7 +159,9 @@ Plans:
   3. Creating a `KILL_SWITCH` file at the repo root halts all order submission within the next run with a clear log message
   4. `pytest -p no:cacheprovider tests/test_bot_import.py` passes with sockets disabled — `import bot` makes zero network calls
   5. An attempt to submit > `MAX_ORDERS_PER_DAY` or an order > `MAX_ORDER_USD` is rejected with a clear error, not silently truncated
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] G-01 — bot.py (run_eod, caps, kill switch, DRY_RUN) + Preview/Confirm UI (see G-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #2 (Idempotency) — reinforced across daily reruns
   - Pitfall #7 (Timezone) — `trading_day_today()` used for every order id and cap counter
