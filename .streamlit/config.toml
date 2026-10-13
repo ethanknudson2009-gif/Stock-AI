@@ -4,3 +4,12 @@ showErrorDetails = false
 
 [server]
 headless = true
+
+# Brand theme — gold / green / tan.
+[theme]
+base = "dark"
+primaryColor = "#CBA135"            # gold
+backgroundColor = "#0E1A12"         # deep green-black canvas
+secondaryBackgroundColor = "#15271B" # panel green
+textColor = "#EADFC6"               # tan
+font = "sans serif"

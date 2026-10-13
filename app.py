@@ -37,11 +37,103 @@ def _get_broker():
 load_dotenv()
 SETTINGS = load_settings()
 
-st.set_page_config(page_title="Stock-AI Backtest Explorer", layout="wide")
-st.title("📈 Stock-AI — Backtest Explorer")
-st.caption(
-    "Honest out-of-sample backtest of the RandomForest signal. "
-    "In-sample numbers are shown too, so the overfitting gap is visible."
+st.set_page_config(page_title="Stock-AI Analyzer", page_icon="📈", layout="wide")
+
+# --- Brand palette: gold / green / tan ---
+GOLD = "#CBA135"
+GOLD_SOFT = "#E3C56B"
+GREEN = "#2E7D4F"
+GREEN_DEEP = "#15271B"
+TAN = "#EADFC6"
+TAN_DIM = "#B9AC8C"
+RED = "#C0564B"
+
+
+def _inject_css() -> None:
+    st.markdown(
+        f"""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap');
+
+        html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+        .block-container {{ padding-top: 2.2rem; max-width: 1150px; }}
+
+        /* Hero banner */
+        .hero {{
+            background: linear-gradient(135deg, {GREEN_DEEP} 0%, #1c3326 55%, #24422f 100%);
+            border: 1px solid rgba(203,161,53,0.35);
+            border-radius: 18px;
+            padding: 1.6rem 1.9rem;
+            margin-bottom: 1.4rem;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+        }}
+        .hero h1 {{
+            font-family: 'Fraunces', serif;
+            font-weight: 700; font-size: 2.35rem; line-height: 1.05;
+            margin: 0; color: {TAN};
+            letter-spacing: -0.5px;
+        }}
+        .hero h1 .accent {{ color: {GOLD}; }}
+        .hero p {{ color: {TAN_DIM}; margin: 0.5rem 0 0; font-size: 0.98rem; }}
+        .hero .pill {{
+            display:inline-block; margin-top:0.9rem; padding:0.28rem 0.8rem;
+            background: rgba(203,161,53,0.14); border:1px solid rgba(203,161,53,0.4);
+            color:{GOLD_SOFT}; border-radius:999px; font-size:0.78rem; font-weight:600;
+            letter-spacing:0.3px;
+        }}
+
+        /* Section headers */
+        h2, h3 {{ font-family: 'Fraunces', serif !important; color: {TAN} !important; }}
+
+        /* Metric cards */
+        [data-testid="stMetric"] {{
+            background: {GREEN_DEEP};
+            border: 1px solid rgba(203,161,53,0.22);
+            border-radius: 14px;
+            padding: 0.9rem 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }}
+        [data-testid="stMetricLabel"] p {{ color: {TAN_DIM} !important; font-weight:600; font-size:0.78rem; }}
+        [data-testid="stMetricValue"] {{ color: {GOLD_SOFT} !important; font-weight:700; }}
+
+        /* Buttons */
+        .stButton > button, .stFormSubmitButton > button {{
+            background: linear-gradient(135deg, {GOLD} 0%, #b58a28 100%);
+            color: #1a1205; font-weight: 700; border: none; border-radius: 10px;
+            padding: 0.55rem 1rem; transition: transform .05s ease, filter .15s ease;
+        }}
+        .stButton > button:hover, .stFormSubmitButton > button:hover {{
+            filter: brightness(1.08); color:#1a1205; transform: translateY(-1px);
+        }}
+
+        /* Sidebar */
+        [data-testid="stSidebar"] {{
+            background: {GREEN_DEEP};
+            border-right: 1px solid rgba(203,161,53,0.18);
+        }}
+        [data-testid="stSidebar"] h2 {{ color: {GOLD_SOFT} !important; }}
+
+        /* Inputs */
+        input, textarea, [data-baseweb="select"] > div {{ border-radius: 9px !important; }}
+
+        /* Tables */
+        [data-testid="stTable"] table {{ border-radius: 10px; overflow: hidden; }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_inject_css()
+st.markdown(
+    f"""
+    <div class="hero">
+      <h1>Stock <span class="accent">AI</span> Analyzer</h1>
+      <p>Honest, walk-forward backtests of the signal — in-sample numbers shown too, so the overfitting gap stays visible.</p>
+      <span class="pill">GOLD · GREEN · TAN</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -82,15 +174,24 @@ def _equity_chart(cumulative):
     fig.add_trace(
         go.Scattergl(
             x=cumulative.index, y=cumulative, mode="lines",
-            name="Portfolio", line=dict(color="#4c78a8"),
+            name="Portfolio", line=dict(color=GOLD, width=2),
         )
     )
+    _style_fig(fig, yaxis_title="Growth of $1")
+    return fig
+
+
+def _style_fig(fig, yaxis_title: str):
+    """Apply the brand look (transparent bg, tan fonts, subtle grid) to a figure."""
     fig.update_layout(
         height=430, margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(orientation="h", y=1.02, yanchor="bottom"),
-        xaxis_title=None, yaxis_title="Growth of $1",
+        xaxis_title=None, yaxis_title=yaxis_title,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=TAN),
     )
-    return fig
+    fig.update_xaxes(gridcolor="rgba(234,223,198,0.08)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(234,223,198,0.08)", zeroline=False)
 
 
 def _price_chart(test_df, positions):
@@ -99,7 +200,7 @@ def _price_chart(test_df, positions):
     fig.add_trace(
         go.Scattergl(
             x=test_df.index, y=test_df["Close"], mode="lines",
-            name="Close", line=dict(color="#4c78a8"),
+            name="Close", line=dict(color=GOLD, width=2),
         )
     )
     changes = positions.diff().fillna(positions)
@@ -108,20 +209,18 @@ def _price_chart(test_df, positions):
     fig.add_trace(
         go.Scattergl(
             x=buys, y=test_df.loc[buys, "Close"], mode="markers", name="Buy",
-            marker=dict(symbol="triangle-up", size=11, color="#2ca02c"),
+            marker=dict(symbol="triangle-up", size=11, color=GREEN,
+                        line=dict(width=1, color=TAN)),
         )
     )
     fig.add_trace(
         go.Scattergl(
             x=sells, y=test_df.loc[sells, "Close"], mode="markers", name="Sell",
-            marker=dict(symbol="triangle-down", size=11, color="#d62728"),
+            marker=dict(symbol="triangle-down", size=11, color=RED,
+                        line=dict(width=1, color=TAN)),
         )
     )
-    fig.update_layout(
-        height=430, margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", y=1.02, yanchor="bottom"),
-        xaxis_title=None, yaxis_title="Price ($)",
-    )
+    _style_fig(fig, yaxis_title="Price ($)")
     return fig
 
 
