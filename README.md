@@ -36,6 +36,21 @@ python main.py backtest --ticker AAPL --cost-bps 0       # zero-cost (optimistic
 python main.py backtest --ticker AAPL --threshold 0.55   # only trade high-conviction signals
 ```
 
+## Secrets
+
+API keys live in **one file only: `.env`** (gitignored). Copy `.env.example`
+to `.env` and uncomment the keys you need — every key is optional, and the
+CLI backtest needs none. Do not use `.streamlit/secrets.toml`. Code reads
+keys through `stock_ai.config.load_settings()`, whose printed form masks
+each key to its last 4 characters.
+
+## Universe
+
+The default multi-ticker universe is `DEFAULT_UNIVERSE` in
+`stock_ai/config/universe.py` (30 large-cap US stocks). It is a *current*
+snapshot, so historical backtests over it are **survivorship-biased** —
+companies that failed or were delisted are missing.
+
 ## Status
 
 Early scaffold — data pipeline, model, and backtester are functional but

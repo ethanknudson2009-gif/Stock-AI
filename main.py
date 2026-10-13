@@ -3,6 +3,8 @@
 import argparse
 from datetime import date
 
+from dotenv import load_dotenv
+
 from stock_ai.backtest.engine import run_backtest
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.features.indicators import add_features
@@ -51,6 +53,7 @@ def cmd_backtest(args):
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="AI stock trading toolkit")
     sub = parser.add_subparsers(dest="command", required=True)
 

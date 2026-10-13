@@ -22,3 +22,5 @@ models/*.joblib
 .DS_Store
 .vscode/
 .idea/
+.env.local
+.streamlit/secrets.toml

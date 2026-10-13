@@ -2,7 +2,7 @@
 
 **Milestone:** v1 — Jev-powered paper-trading bot you can show mentors
 **Source:** `.planning/PROJECT.md` Active list, refined by `.planning/research/*`
-**Last updated:** 2026-10-07
+**Last updated:** 2026-10-13
 **Mode:** Vertical MVP (each phase ships an end-to-end slice)
 
 Every requirement is a hypothesis until shipped and validated. Checked boxes get moved to `PROJECT.md`'s Validated section at phase-end.
@@ -15,20 +15,20 @@ Every requirement is a hypothesis until shipped and validated. Checked boxes get
 
 Pre-work shared by every downstream slice. From `research/ARCHITECTURE.md` Phase A — called out as the single load-bearing dependency.
 
-- [ ] **SB-01**: `SignalBackend` Protocol defined in `stock_ai/models/base.py` with `fit(X, y)` and `predict_proba_up(X)` methods
-- [ ] **SB-02**: Existing RandomForest wrapped as `RandomForestBackend` conforming to `SignalBackend`
-- [ ] **SB-03**: `generate_signals(backend, df, threshold)` refactored to accept a `SignalBackend` instance (no `if/else` on backend type)
-- [ ] **SB-04**: Existing single-ticker CLI (`python main.py backtest --ticker AAPL`) output remains byte-identical after refactor (regression test)
+- [x] **SB-01**: `SignalBackend` Protocol defined in `stock_ai/models/base.py` with `fit(X, y)` and `predict_proba_up(X)` methods
+- [x] **SB-02**: Existing RandomForest wrapped as `RandomForestBackend` conforming to `SignalBackend`
+- [x] **SB-03**: `generate_signals(backend, df, threshold)` refactored to accept a `SignalBackend` instance (no `if/else` on backend type)
+- [x] **SB-04**: Existing single-ticker CLI (`python main.py backtest --ticker AAPL`) output remains byte-identical after refactor (regression test)
 
 ### Configuration & Universe (CU)
 
 From `research/STACK.md` + `research/PITFALLS.md` #9. Dotenv-only secrets; universe is config, not hardcoded.
 
-- [ ] **CU-01**: `python-dotenv` wired up — `load_dotenv()` called from a single entry point so `.env` is read once per run
-- [ ] **CU-02**: `stock_ai/config.py` module with typed `Settings` class exposing `anthropic_api_key`, `alpaca_api_key`, `alpaca_secret_key`, `typesafe_api_key` (all optional at this stage)
-- [ ] **CU-03**: `Settings.__repr__` redacts all secret values (never prints key material in tracebacks)
-- [ ] **CU-04**: Default universe of 20–50 large-cap US liquid tickers defined in `stock_ai/config/universe.py` (editable without code changes)
-- [ ] **CU-05**: `.env.example` updated with every required/optional key documented
+- [x] **CU-01**: `python-dotenv` wired up — `load_dotenv()` called from a single entry point so `.env` is read once per run
+- [x] **CU-02**: `stock_ai/config.py` module with typed `Settings` class exposing `anthropic_api_key`, `alpaca_api_key`, `alpaca_secret_key`, `typesafe_api_key` (all optional at this stage)
+- [x] **CU-03**: `Settings.__repr__` redacts all secret values (never prints key material in tracebacks)
+- [x] **CU-04**: Default universe of 20–50 large-cap US liquid tickers defined in `stock_ai/config/universe.py` (editable without code changes)
+- [x] **CU-05**: `.env.example` updated with every required/optional key documented
 
 ### Streamlit Backtest Explorer (UI)
 

@@ -5,7 +5,7 @@
 **Granularity:** coarse
 **Mode:** Vertical MVP (each phase ships an end-to-end slice runnable at HEAD)
 **Coverage:** 42/42 v1 REQ-IDs mapped
-**Last updated:** 2026-10-07
+**Last updated:** 2026-10-13
 
 Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is load-bearing** — nothing downstream starts before A ships. Phase H (Jev) is parallelizable with D–G once A ships. Phases B/C/D/E/F/G otherwise follow the natural dependency chain.
 
@@ -13,8 +13,8 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 
 ## Phases
 
-- [ ] **Phase A: SignalBackend Protocol** — load-bearing refactor that unblocks every other phase
-- [ ] **Phase B: Config & Universe** — dotenv secrets + default large-cap universe
+- [x] **Phase A: SignalBackend Protocol** — load-bearing refactor that unblocks every other phase
+- [x] **Phase B: Config & Universe** — dotenv secrets + default large-cap universe
 - [ ] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
 - [ ] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
 - [ ] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
@@ -39,7 +39,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
   4. `grep -r "RandomForestClassifier" stock_ai/strategy/ stock_ai/backtest/` returns zero hits (no leakage of concrete model type outside `rf_backend.py`)
 **Plans:** 1 plan
 Plans:
-- [ ] A-01-PLAN.md — Define SignalBackend Protocol, wrap RandomForest behind it, refactor generate_signals, prove byte-identical CLI output
+- [x] A-01-PLAN.md — Define SignalBackend Protocol, wrap RandomForest behind it, refactor generate_signals, prove byte-identical CLI output
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - *(Phase A has no HIGH pitfalls — the risk is backward-compat regression; mitigated by SB-04)*
 **Test coverage delivered (from RH-01 safety floor):** none directly, but the Protocol enables tests #6 and #10 downstream
@@ -55,7 +55,9 @@ Plans:
   2. `load_dotenv()` is called from exactly one place per entry point (`main.py`, future `app.py`, future `bot.py`) — not sprinkled across modules
   3. `stock_ai/universe/tickers.py` exposes a `DEFAULT_UNIVERSE` list of 20–50 large-cap tickers editable without touching any other file
   4. `.env.example` lists every optional key with a comment explaining what each unlocks
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] B-01 — Settings + redaction, single load_dotenv, DEFAULT_UNIVERSE, .env.example (see B-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #4 (Survivorship bias) — universe docstring must disclose that it is a current snapshot, not point-in-time membership
   - Pitfall #9 (`st.secrets` vs `.env` double-source) — `.env` only, no `.streamlit/secrets.toml`
