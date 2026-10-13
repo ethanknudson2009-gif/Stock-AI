@@ -1,7 +1,7 @@
 # Stock-AI — STATE
 
 **Last updated:** 2026-10-13
-**Session:** Phases A (2026-10-07), B/C/D (2026-10-13) shipped
+**Session:** Phases A (2026-10-07), B/C/D/E (2026-10-13) shipped
 
 ---
 
@@ -9,7 +9,7 @@
 
 **Core value:** A running Alpaca paper-trading bot placing real sandbox orders on daily EOD signals, backed by an honest browser-based backtest explorer (Streamlit) that shows RandomForest vs Jev side-by-side.
 
-**Current focus:** Phase E — Broker Protocol + FakeBroker (Phase H Jev also unblocked)
+**Current focus:** Phase F — Alpaca Paper Adapter (Phase H Jev also unblocked)
 
 **Milestone:** v1 — "paper-trading bot in a browser"
 **Timeline target:** 2–4 weeks
@@ -20,11 +20,11 @@
 
 ## Current Position
 
-**Phase:** E — Broker Protocol + FakeBroker (not started)
+**Phase:** F — Alpaca Paper Adapter (not started)
 **Plan:** none yet
-**Status:** Ready for `/gsd:plan-phase E`
-**Progress:** `[####____] 4/8 phases complete` (A ✓, B ✓, C ✓, D ✓)
-**Tests:** 28 passing
+**Status:** Ready for `/gsd:plan-phase F`
+**Progress:** `[#####___] 5/8 phases complete` (A ✓, B ✓, C ✓, D ✓, E ✓)
+**Tests:** 39 passing
 
 **Open concern (2026-10-13):** RF model has no edge — AAPL OOS 45.6% accuracy, +1.25% vs +60.67% buy & hold; in-sample +16,235% (heavy overfit). Not in any phase's scope yet; consider before Phase G puts it in front of a broker.
 

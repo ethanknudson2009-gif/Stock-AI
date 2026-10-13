@@ -58,10 +58,10 @@ From `PROJECT.md` v1 scope + `research/ARCHITECTURE.md` Phase D + `research/PITF
 
 From `research/ARCHITECTURE.md` Phase E — ports-and-adapters pattern so bot stays testable without hitting Alpaca.
 
-- [ ] **BR-01**: `Broker` Protocol defined in `stock_ai/execution/base.py` (methods: `get_account`, `get_positions`, `submit_order`, `cancel_order`)
-- [ ] **BR-02**: `FakeBroker` implementation for tests — deterministic, in-memory
-- [ ] **BR-03**: Order-diff logic (given current positions + target positions, produce orders) is pure and unit-testable with `FakeBroker`
-- [ ] **BR-04**: `DRY_RUN` env flag short-circuits `submit_order` to log-only mode
+- [x] **BR-01**: `Broker` Protocol defined in `stock_ai/execution/base.py` (methods: `get_account`, `get_positions`, `submit_order`, `cancel_order`)
+- [x] **BR-02**: `FakeBroker` implementation for tests — deterministic, in-memory
+- [x] **BR-03**: Order-diff logic (given current positions + target positions, produce orders) is pure and unit-testable with `FakeBroker`
+- [x] **BR-04**: `DRY_RUN` env flag short-circuits `submit_order` to log-only mode
 
 ### Alpaca Paper Trading (AP)
 

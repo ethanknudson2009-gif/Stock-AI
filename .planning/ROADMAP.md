@@ -17,7 +17,7 @@ Phase order follows `research/ARCHITECTURE.md` 8-phase build order. **Phase A is
 - [x] **Phase B: Config & Universe** — dotenv secrets + default large-cap universe
 - [x] **Phase C: Streamlit Single-Ticker Explorer** — browser UI reproducing the CLI backtest
 - [x] **Phase D: Multi-Ticker Cross-Sectional Strategy** — portfolio-level ranking + honest Sharpe
-- [ ] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
+- [x] **Phase E: Broker Protocol + FakeBroker** — testable execution layer, no SDK yet
 - [ ] **Phase F: Alpaca Paper Adapter** — real paper broker behind the Protocol
 - [ ] **Phase G: EOD Bot Loop** — `bot.py` wires everything into a daily paper-trade loop
 - [ ] **Phase H: Jev Signal Backend** — second `SignalBackend` + RF-vs-Jev comparison in UI
@@ -118,7 +118,9 @@ Plans:
   2. `diff(current_positions, target_tickers, caps)` is a pure function with unit tests covering empty→full, full→empty, partial rotation, and cap enforcement
   3. Setting `DRY_RUN=true` causes `submit_order` to return a logged no-op without any side effect that would reach a real broker
   4. The `Broker` Protocol has no `alpaca-py` import anywhere in `stock_ai/execution/` except (future) `paper.py`
-**Plans:** TBD
+**Plans:** 1 plan
+Plans:
+- [x] E-01 — Broker Protocol, pure diff(), FakeBroker (idempotent + DRY_RUN) (see E-01-SUMMARY.md)
 **Risks (HIGH-severity pitfalls to mitigate this phase):**
   - Pitfall #2 (Idempotency) — `FakeBroker` enforces that duplicate `client_order_id` produces a single submission; test lands here
 **Test coverage delivered (from RH-01 safety floor):** #9 `test_order_cap_enforced`, #10 `test_dry_run_short_circuit`
