@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from stock_ai.backtest.engine import run_backtest
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.features.indicators import add_features
-from stock_ai.models.classifier import train_model
+from stock_ai.models.classifier import train_model, walk_forward_predict
 from stock_ai.models.rf_backend import RandomForestBackend
 from stock_ai.strategy.signal import generate_signals
 
@@ -37,17 +37,21 @@ def _print_results(label: str, df, results) -> None:
 def cmd_backtest(args):
     df = fetch_price_history(args.ticker, args.start, args.end)
     df = add_features(df)
-    model, accuracy, train_df, test_df = train_model(df)
+
+    # Honest estimate: walk-forward (retrain repeatedly, predict only forward).
+    proba, wf_accuracy = walk_forward_predict(df)
+    wf_df = df.loc[proba.index]
+    wf_positions = (proba > args.threshold).astype(int)
+    wf_results = run_backtest(wf_df, wf_positions, cost_bps=args.cost_bps)
+
+    # In-sample contrast from a single chronological split's training slice.
+    model, _accuracy, train_df, _test_df = train_model(df)
     backend = RandomForestBackend.from_fitted(model)
-
-    oos_positions = generate_signals(backend, test_df, threshold=args.threshold)
-    oos_results = run_backtest(test_df, oos_positions, cost_bps=args.cost_bps)
-
     is_positions = generate_signals(backend, train_df, threshold=args.threshold)
     is_results = run_backtest(train_df, is_positions, cost_bps=args.cost_bps)
 
-    print(f"Test accuracy: {accuracy:.2%}  (threshold: {args.threshold:.2f})\n")
-    _print_results("Out-of-sample (honest)", test_df, oos_results)
+    print(f"Walk-forward accuracy: {wf_accuracy:.2%}  (threshold: {args.threshold:.2f})\n")
+    _print_results("Out-of-sample (honest, walk-forward)", wf_df, wf_results)
     print()
     _print_results("In-sample (training data — overfitting-prone)", train_df, is_results)
 

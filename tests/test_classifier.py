@@ -24,3 +24,17 @@ def test_train_test_split_is_chronological_and_disjoint():
     assert train_df.index.max() < test_df.index.min(), (
         "test set must come strictly after train set (no shuffling)"
     )
+
+
+def test_walk_forward_predict_is_forward_only_and_sized():
+    from stock_ai.models.classifier import walk_forward_predict
+
+    df = add_features(_synthetic_prices(n=800))
+    proba, accuracy = walk_forward_predict(df, n_splits=5)
+
+    # Probabilities are in [0, 1] and cover the post-warmup tail only.
+    assert proba.between(0, 1).all()
+    assert 0.0 <= accuracy <= 1.0
+    labeled_len = len(df.dropna())
+    assert 0 < len(proba) < labeled_len  # a warm-up portion is never predicted
+    assert proba.index.is_monotonic_increasing
