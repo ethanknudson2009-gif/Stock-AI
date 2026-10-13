@@ -19,97 +19,126 @@ from stock_ai.models.rf_backend import RandomForestBackend
 load_dotenv()
 SETTINGS = load_settings()
 
-# --- thinkorswim-style terminal palette: gold / green / tan on charcoal ---
-GOLD = "#D9A441"        # accent / highlighted values
-GOLD_SOFT = "#E6BE63"
-GREEN = "#2FBF71"       # up / buy
-GREEN_DEEP = "#15171B"  # panel
-CANVAS = "#0B0C0E"      # terminal background
-PANEL = "#15171B"
-BORDER = "#2A2D33"      # thin panel borders
-TAN = "#D7D2C4"         # primary text
-TAN_DIM = "#8A8577"     # dim uppercase labels
-RED = "#E24A3B"         # down / sell
+# --- CYBERPUNK neon palette (names kept stable; values are neon) ---
+GOLD = "#22E3FF"        # primary accent → neon cyan (chart line, highlights)
+GOLD_SOFT = "#5EEBFF"
+GREEN = "#2EF2A6"       # up / buy → neon green
+GREEN_DEEP = "#0F1020"  # panel
+CANVAS = "#08080F"      # deep space-black
+PANEL = "#0F1020"
+BORDER = "#242847"      # bluish neon border
+TAN = "#E6F0FF"         # cool-white text
+TAN_DIM = "#7E8AB0"     # dim steel-blue labels
+RED = "#FF3D6E"         # down / sell → hot pink-red
+MAGENTA = "#FF2E9A"     # neon magenta
+PURPLE = "#A855F7"      # electric purple
 
 
 def inject_css() -> None:
-    """thinkorswim-style terminal styling shared by every page."""
+    """Cyberpunk neon styling shared by every page."""
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
-        html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; font-size: 14px; }}
-        .block-container {{ padding-top: 1.1rem; max-width: 1240px; }}
-
-        /* Section headers: uppercase terminal style */
-        h1, h2, h3 {{
-            font-family: 'Roboto Mono', monospace !important; color: {TAN} !important;
-            text-transform: uppercase; letter-spacing: 1px; font-weight: 700 !important;
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Share+Tech+Mono&family=Inter:wght@400;500;600&display=swap');
+        html, body, [class*="css"] {{ font-family:'Inter',sans-serif; font-size:14px; color:{TAN}; }}
+        .stApp {{
+            background:
+              radial-gradient(900px 500px at 12% -10%, rgba(34,227,255,0.10), transparent 60%),
+              radial-gradient(900px 500px at 100% 0%, rgba(255,46,154,0.10), transparent 55%),
+              {CANVAS};
         }}
-        h2, h3 {{ font-size: 1.0rem !important; border-left: 3px solid {GOLD};
-                  padding-left: .55rem; margin: 1rem 0 .4rem !important; }}
+        .block-container {{ padding-top: 1.2rem; max-width: 1260px; }}
 
-        /* Slim top bar instead of a big banner */
-        .tos-bar {{
-            display:flex; align-items:center; justify-content:space-between;
-            background: {PANEL}; border: 1px solid {BORDER}; border-top: 2px solid {GOLD};
-            border-radius: 6px; padding: .6rem .9rem; margin-bottom: .9rem;
-        }}
-        .tos-bar .title {{ font-family:'Roboto Mono',monospace; font-weight:700;
-            font-size:1.15rem; letter-spacing:1px; text-transform:uppercase; color:{TAN}; }}
-        .tos-bar .title .accent {{ color:{GOLD}; }}
-        .tos-bar .sub {{ color:{TAN_DIM}; font-size:.78rem; font-family:'Roboto Mono',monospace;
-            text-align:right; max-width:55%; }}
+        /* Headers: techy glow */
+        h1, h2, h3 {{ font-family:'Orbitron',sans-serif !important; color:{TAN} !important;
+            letter-spacing:1px; text-transform:uppercase; }}
+        h2, h3 {{ font-size:1.0rem !important; margin:1.1rem 0 .4rem !important;
+            padding-left:.6rem; border-left:3px solid {GOLD};
+            text-shadow:0 0 12px rgba(34,227,255,0.35); }}
 
-        /* Stat tiles (thinkorswim quote cells) */
-        .tos-tiles {{ display:flex; flex-wrap:wrap; gap:8px; margin:.3rem 0 .6rem; }}
+        /* Hero / page banner */
+        .cp-bar {{ position:relative; background:linear-gradient(135deg, rgba(34,227,255,0.07), rgba(255,46,154,0.07));
+            border:1px solid {BORDER}; border-radius:12px; padding:1.1rem 1.3rem; margin-bottom:1rem;
+            box-shadow:0 0 0 1px rgba(34,227,255,0.08), 0 0 28px rgba(34,227,255,0.08); overflow:hidden; }}
+        .cp-bar::before {{ content:""; position:absolute; left:0; top:0; height:100%; width:3px;
+            background:linear-gradient(180deg,{GOLD},{MAGENTA}); box-shadow:0 0 16px {GOLD}; }}
+        .cp-bar .title {{ font-family:'Orbitron',sans-serif; font-weight:800; font-size:1.5rem;
+            letter-spacing:1.5px; text-transform:uppercase; color:{TAN};
+            text-shadow:0 0 18px rgba(34,227,255,0.45); }}
+        .cp-bar .title .accent {{ color:{GOLD}; }}
+        .cp-bar .sub {{ color:{TAN_DIM}; font-size:.84rem; margin-top:.3rem; }}
+
+        /* Stat tiles (neon quote cells) */
+        .tos-tiles {{ display:flex; flex-wrap:wrap; gap:10px; margin:.3rem 0 .7rem; }}
         .tos-tile {{ flex:1 1 150px; background:{PANEL}; border:1px solid {BORDER};
-            border-radius:5px; padding:.55rem .7rem; }}
-        .tos-tile .lbl {{ color:{TAN_DIM}; font-size:.66rem; text-transform:uppercase;
-            letter-spacing:.8px; font-family:'Roboto Mono',monospace; }}
-        .tos-tile .val {{ font-family:'Roboto Mono',monospace; font-weight:700;
-            font-size:1.35rem; margin-top:.15rem; }}
+            border-radius:9px; padding:.65rem .8rem; box-shadow:inset 0 0 20px rgba(34,227,255,0.04); }}
+        .tos-tile .lbl {{ color:{TAN_DIM}; font-size:.64rem; text-transform:uppercase;
+            letter-spacing:1px; font-family:'Share Tech Mono',monospace; }}
+        .tos-tile .val {{ font-family:'Share Tech Mono',monospace; font-weight:700;
+            font-size:1.5rem; margin-top:.15rem; text-shadow:0 0 14px currentColor; }}
 
-        /* Native metrics fallback → same terminal look */
+        /* Dashboard cards (bordered containers) */
+        [data-testid="stVerticalBlockBorderWrapper"] {{ background:{PANEL};
+            border:1px solid {BORDER} !important; border-radius:14px;
+            box-shadow:0 0 0 1px rgba(255,46,154,0.05), 0 8px 28px rgba(0,0,0,0.45); }}
+
         [data-testid="stMetric"] {{ background:{PANEL}; border:1px solid {BORDER};
-            border-radius:5px; padding:.55rem .7rem; }}
-        [data-testid="stMetricLabel"] p {{ color:{TAN_DIM} !important; font-size:.66rem !important;
-            text-transform:uppercase; letter-spacing:.8px; }}
-        [data-testid="stMetricValue"] {{ color:{GOLD} !important; font-family:'Roboto Mono',monospace !important;
-            font-weight:700 !important; }}
+            border-radius:9px; padding:.6rem .8rem; }}
+        [data-testid="stMetricLabel"] p {{ color:{TAN_DIM} !important; font-size:.64rem !important;
+            text-transform:uppercase; letter-spacing:1px; }}
+        [data-testid="stMetricValue"] {{ color:{GOLD} !important; font-family:'Share Tech Mono',monospace !important;
+            font-weight:700 !important; text-shadow:0 0 14px rgba(34,227,255,0.5); }}
 
-        /* Buttons: flat terminal */
+        /* Buttons: neon gradient + glow */
         .stButton > button, .stFormSubmitButton > button {{
-            background:{GOLD}; color:#141008; font-weight:700; border:none; border-radius:4px;
-            font-family:'Roboto Mono',monospace; text-transform:uppercase; letter-spacing:.5px;
-            padding:.45rem .9rem; }}
-        .stButton > button:hover, .stFormSubmitButton > button:hover {{ filter:brightness(1.1); color:#141008; }}
+            background:linear-gradient(135deg,{GOLD},{MAGENTA}); color:#05070d; font-weight:700;
+            border:none; border-radius:8px; font-family:'Orbitron',sans-serif; text-transform:uppercase;
+            letter-spacing:.6px; padding:.5rem 1rem; box-shadow:0 0 18px rgba(34,227,255,0.35); }}
+        .stButton > button:hover, .stFormSubmitButton > button:hover {{
+            color:#05070d; filter:brightness(1.12); box-shadow:0 0 26px rgba(255,46,154,0.5); }}
 
         /* Sidebar */
-        [data-testid="stSidebar"] {{ background:{PANEL}; border-right:1px solid {BORDER}; }}
-        [data-testid="stSidebar"] .stForm {{ border:1px solid {BORDER}; border-radius:6px; }}
-        [data-testid="stSidebarNav"] a span {{ color:{TAN} !important; font-family:'Roboto Mono',monospace; }}
+        [data-testid="stSidebar"] {{ background:linear-gradient(180deg,#0C0D1A,{PANEL});
+            border-right:1px solid {BORDER}; }}
+        [data-testid="stSidebarNav"] a span {{ color:{TAN} !important; font-family:'Share Tech Mono',monospace; }}
+        .cp-brand {{ display:flex; align-items:center; gap:.6rem; padding:.3rem .2rem .9rem;
+            border-bottom:1px solid {BORDER}; margin-bottom:.8rem; }}
+        .cp-brand .badge {{ width:34px; height:34px; border-radius:8px;
+            background:linear-gradient(135deg,{GOLD},{MAGENTA}); display:flex; align-items:center;
+            justify-content:center; font-family:'Orbitron',sans-serif; font-weight:800; color:#05070d;
+            box-shadow:0 0 16px rgba(34,227,255,0.5); }}
+        .cp-brand .name {{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:.82rem;
+            letter-spacing:1px; color:{TAN}; }}
+        .cp-brand .tag {{ color:{TAN_DIM}; font-size:.6rem; letter-spacing:2px; text-transform:uppercase; }}
 
-        /* Inputs + dense tables */
-        input, textarea, [data-baseweb="select"] > div {{ border-radius:4px !important;
-            font-family:'Roboto Mono',monospace !important; }}
-        [data-testid="stTable"] table {{ border:1px solid {BORDER}; font-family:'Roboto Mono',monospace;
+        input, textarea, [data-baseweb="select"] > div {{ border-radius:7px !important;
+            font-family:'Share Tech Mono',monospace !important; }}
+        [data-testid="stTable"] table {{ border:1px solid {BORDER}; font-family:'Share Tech Mono',monospace;
             font-size:.82rem; }}
-        [data-testid="stTable"] th {{ background:{CANVAS}; color:{TAN_DIM} !important;
-            text-transform:uppercase; letter-spacing:.5px; }}
-        [data-testid="stTable"] tr:nth-child(even) td {{ background:rgba(255,255,255,0.02); }}
+        [data-testid="stTable"] th {{ background:{CANVAS}; color:{GOLD} !important;
+            text-transform:uppercase; letter-spacing:1px; }}
+        [data-testid="stTable"] tr:nth-child(even) td {{ background:rgba(34,227,255,0.03); }}
         a {{ color:{GOLD_SOFT}; }}
-        .stAlert {{ border-radius:5px; }}
+        .stAlert {{ border-radius:9px; border:1px solid {BORDER}; }}
+        .eyebrow {{ color:{MAGENTA}; font-family:'Share Tech Mono',monospace; font-size:.66rem;
+            letter-spacing:2px; text-transform:uppercase; }}
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+    # Neon brand badge in the sidebar (on every page).
+    st.sidebar.markdown(
+        '<div class="cp-brand"><div class="badge">S</div>'
+        '<div><div class="name">STOCK//AI</div>'
+        '<div class="tag">neural terminal</div></div></div>',
         unsafe_allow_html=True,
     )
 
 
 def hero(title_html: str, subtitle: str) -> None:
-    """Render the slim terminal top bar (title may include <span class='accent'>)."""
+    """Render the neon hero banner (title may include <span class='accent'>)."""
     st.markdown(
-        f'<div class="tos-bar"><div class="title">{title_html}</div>'
+        f'<div class="cp-bar"><div class="title">{title_html}</div>'
         f'<div class="sub">{subtitle}</div></div>',
         unsafe_allow_html=True,
     )
