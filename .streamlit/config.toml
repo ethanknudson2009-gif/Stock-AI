@@ -5,11 +5,11 @@ showErrorDetails = false
 [server]
 headless = true
 
-# Brand theme — gold / green / tan.
+# thinkorswim-style terminal theme (gold / green / tan on charcoal).
 [theme]
 base = "dark"
-primaryColor = "#CBA135"            # gold
-backgroundColor = "#0E1A12"         # deep green-black canvas
-secondaryBackgroundColor = "#15271B" # panel green
-textColor = "#EADFC6"               # tan
-font = "sans serif"
+primaryColor = "#D9A441"             # gold accent
+backgroundColor = "#0B0C0E"          # terminal charcoal
+secondaryBackgroundColor = "#15171B"  # panel
+textColor = "#D7D2C4"                # tan-gray
+font = "monospace"
