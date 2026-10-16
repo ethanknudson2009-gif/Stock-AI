@@ -93,3 +93,41 @@ def test_signal_log_records_once_and_resolves_outcomes(tmp_path):
     assert list(log["went_up"]) == [1.0, 0.0]
     acc = live_accuracy(log)
     assert acc["n"] == 2 and acc["accuracy"] == 1.0   # both calls (0.7 up, 0.3 down) were right
+
+
+def test_sector_cap_skips_overweight_sector_and_goes_deeper():
+    from stock_ai.execution.risk import apply_sector_cap
+
+    sectors = {"A1": "Tech", "A2": "Tech", "A3": "Tech", "B1": "Fin", "C1": "Energy"}
+    ranked = ["A1", "A2", "A3", "B1", "C1"]
+    assert apply_sector_cap(ranked, 3, 2, sectors) == ["A1", "A2", "B1"]          # A3 skipped, next sector used
+    assert apply_sector_cap(ranked, 3, None, sectors) == ["A1", "A2", "A3"]       # no cap
+    assert apply_sector_cap(["X", "Y", "Z"], 2, 1, {}) == ["X", "Y"]               # unknown sectors never capped
+
+
+def test_stop_loss_and_daily_loss_halt_thresholds():
+    from stock_ai.execution.risk import daily_loss_halt, stop_loss_tickers
+
+    pos = [{"ticker": "A", "pl_pct": -0.12}, {"ticker": "B", "pl_pct": -0.05}, {"ticker": "C", "pl_pct": 0.2}]
+    assert stop_loss_tickers(pos, 0.10) == ["A"]
+    assert daily_loss_halt(-0.031, 0.03) and not daily_loss_halt(-0.01, 0.03) and not daily_loss_halt(None, 0.03)
+
+
+def test_plan_orders_applies_risk_rules_for_alpaca_like_broker(monkeypatch):
+    import bot
+    from stock_ai.execution import FakeBroker
+
+    class RiskyBroker(FakeBroker):
+        def get_position_details(self):
+            return [{"ticker": "AAA", "pl_pct": -0.15}]
+
+        def get_account_summary(self):
+            return {"day_pl_pct": -0.05}
+
+    monkeypatch.setattr(bot, "latest_signals", lambda universe: {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7})
+    broker = RiskyBroker(dry_run=False)
+    broker.submit_order(bot.Order("AAA", "buy", "x1"))                  # we already hold AAA
+    notes: list = []
+    orders = bot.plan_orders(broker, universe=["AAA", "BBB", "CCC"], top_n_count=2, risk_out=notes)
+    assert [(o.ticker, o.side) for o in orders] == [("AAA", "sell")]    # stopped out; buys paused by daily loss
+    assert any("Stop-loss" in n for n in notes) and any("Daily loss" in n for n in notes)

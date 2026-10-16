@@ -14,15 +14,15 @@ import os
 from datetime import date
 from pathlib import Path
 
-from stock_ai.config import DEFAULT_UNIVERSE
+from stock_ai.config import DEFAULT_UNIVERSE, SECTORS
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.execution.base import Order, make_client_order_id
 from stock_ai.execution.clock import trading_day_today
 from stock_ai.execution.diff import diff
+from stock_ai.execution.risk import apply_sector_cap, daily_loss_halt, stop_loss_tickers
 from stock_ai.features.indicators import add_features
 from stock_ai.models.classifier import FEATURE_COLUMNS, train_model
 from stock_ai.models.rf_backend import RandomForestBackend
-from stock_ai.strategy.ranker import top_n
 
 REPO_ROOT = Path(__file__).resolve().parent
 KILL_SWITCH = REPO_ROOT / "KILL_SWITCH"
@@ -31,6 +31,9 @@ SIGNAL_LOG = REPO_ROOT / "logs" / "signals.csv"
 
 MAX_ORDER_USD = 500.0      # hard per-order dollar cap (BL-02)
 MAX_ORDERS_PER_DAY = 20    # hard daily order-count cap (BL-03)
+MAX_PER_SECTOR = 2         # at most this many holdings from one sector
+STOP_LOSS_PCT = 0.10       # sell a position that is down this much from cost
+DAILY_LOSS_LIMIT = 0.03    # account down this much today -> no new buys
 
 
 def dry_run_enabled() -> bool:
@@ -65,10 +68,14 @@ def plan_orders(
     order_usd: float = MAX_ORDER_USD,
     trading_day: date | None = None,
     signals_out: dict | None = None,
+    risk_out: list | None = None,
 ) -> list[Order]:
     """Compute today's intended orders (no submission). Used by the Preview step.
 
-    If `signals_out` is a dict it is filled with each ticker's P(up) so the caller can log it.
+    If `signals_out` is a dict it is filled with each ticker's P(up) so the caller can log it. Risk rules
+    (sector cap, stop-loss, daily-loss halt) are applied; if `risk_out` is a list it receives plain-English
+    notes about any rule that changed the plan. Stop-loss and daily-loss need a broker that reports
+    positions' P&L / account change (Alpaca); other brokers skip those two.
     """
     universe = universe or list(DEFAULT_UNIVERSE)
     day = trading_day or trading_day_today()
@@ -76,11 +83,16 @@ def plan_orders(
     if signals_out is not None:
         signals_out.update(proba)
 
-    import pandas as pd
-
-    row = pd.DataFrame([proba], index=[day])
-    weights = top_n(row, top_n_count)
-    target = [t for t in weights.columns if weights.iloc[0][t] > 0]
+    notes = risk_out if risk_out is not None else []
+    details = broker.get_position_details() if hasattr(broker, "get_position_details") else []
+    stopped = stop_loss_tickers(details, STOP_LOSS_PCT)
+    if stopped:
+        notes.append(f"Stop-loss: {', '.join(stopped)} down {STOP_LOSS_PCT:.0%}+ from cost — sell, don't re-buy today.")
+    ranked = [t for t in sorted(proba, key=proba.get, reverse=True) if t not in stopped]
+    target = apply_sector_cap(ranked, top_n_count, MAX_PER_SECTOR, SECTORS)
+    plain = apply_sector_cap(ranked, top_n_count, None, SECTORS)
+    if target != plain:
+        notes.append(f"Sector cap ({MAX_PER_SECTOR} per sector) swapped out: {', '.join(sorted(set(plain) - set(target)))}.")
 
     current = broker.get_positions()
     orders = diff(current, target, day, max_positions=top_n_count)
@@ -91,6 +103,11 @@ def plan_orders(
             sized.append(Order(o.ticker, "buy", o.client_order_id, notional=order_usd))
         else:
             sized.append(Order(o.ticker, "sell", o.client_order_id, qty=current.get(o.ticker)))
+    if hasattr(broker, "get_account_summary"):
+        day = broker.get_account_summary().get("day_pl_pct")
+        if daily_loss_halt(day, DAILY_LOSS_LIMIT):
+            notes.append(f"Daily loss limit hit (account {day:+.1%} today, limit -{DAILY_LOSS_LIMIT:.0%}): new buys paused.")
+            sized = [o for o in sized if o.side == "sell"]
     return sized
 
 

@@ -80,7 +80,10 @@ def run(trade: bool, force: bool) -> int:
 
     broker = AlpacaPaperBroker()
     sigs: dict = {}
-    orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs)
+    notes: list = []
+    orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs, risk_out=notes)
+    for n in notes:
+        _log(f"risk rule: {n}")
     bot.enforce_caps(orders)
     px = {t: float(_closes(t, period="5d").iloc[-1]) for t in sigs}
     added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)

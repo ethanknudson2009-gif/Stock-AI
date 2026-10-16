@@ -64,8 +64,9 @@ if preview:
         st.stop()
     try:
         sigs: dict = {}
+        risk_notes: list = []
         with st.spinner(f"Computing today's signals for {len(universe)} tickers…"):
-            orders = bot.plan_orders(broker, universe=universe, top_n_count=top_n, signals_out=sigs)
+            orders = bot.plan_orders(broker, universe=universe, top_n_count=top_n, signals_out=sigs, risk_out=risk_notes)
             bot.enforce_caps(orders)
         px = latest_prices(tuple(sigs))
         log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)  # for live-vs-backtest tracking
@@ -73,6 +74,7 @@ if preview:
         st.error(SETTINGS.scrub(f"Could not build orders: {type(exc).__name__}: {exc}"))
         st.stop()
     ss["pending_orders"] = orders
+    ss["risk_notes"] = risk_notes
     ss.pop("pt_ack", None)
 
 def _signal_log_section():
@@ -109,6 +111,9 @@ if not orders:
     st.success("No changes needed — target holdings already match current positions.")
     _signal_log_section()
     st.stop()
+
+for n in ss.get("risk_notes") or []:
+    banner("warn", "Risk rule applied", n, icon="shield")
 
 # ---- Step 1: review ----
 section(f"Step 1 · Review {len(orders)} orders", f"for {bot.trading_day_today():%a %b %d, %Y}")

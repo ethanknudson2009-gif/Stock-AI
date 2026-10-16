@@ -43,3 +43,15 @@ TICKER_SUGGESTIONS: list[str] = sorted(set(DEFAULT_UNIVERSE + [
     "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD", "CVS", "MDT", "COP", "SLB", "EOG", "OXY", "BA", "CAT", "DE", "GE",
     "HON", "LMT", "RTX", "UPS", "UNP", "FDX", "T", "VZ", "TMUS", "CMCSA", "NEE", "DUK", "SO", "AMT", "PLD", "F", "GM",
 ]))
+
+
+# Sector of each default-universe ticker (GICS-style groups), used by the sector-concentration cap.
+SECTORS: dict[str, str] = {
+    **dict.fromkeys(["AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "ADBE", "CRM", "CSCO"], "Technology"),
+    **dict.fromkeys(["GOOGL", "META", "NFLX", "DIS"], "Communication"),
+    **dict.fromkeys(["AMZN", "HD", "MCD"], "Discretionary"),
+    **dict.fromkeys(["WMT", "COST", "KO", "PEP", "PG"], "Staples"),
+    **dict.fromkeys(["JPM", "BAC", "V", "MA"], "Financials"),
+    **dict.fromkeys(["UNH", "JNJ", "ABBV", "MRK"], "Healthcare"),
+    **dict.fromkeys(["XOM", "CVX"], "Energy"),
+}

@@ -1,13 +1,15 @@
 """My Trades: the live Alpaca paper account reflected inside the app (orders, positions, P&L, equity)."""
 
 import re
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
-from bot import SIGNAL_LOG
-from ui.components import banner, data_table, note, page_head, section, stat_grid, tone
-from ui_common import ET, account_snapshot, equity_history_chart, fmt_stamp
+from bot import DAILY_LOSS_LIMIT, MAX_PER_SECTOR, SIGNAL_LOG, STOP_LOSS_PCT
+from stock_ai.config import SECTORS
+from ui.components import banner, data_table, note, page_head, section, stat_grid, tone, verdict_banner
+from ui_common import ET, account_snapshot, equity_history_chart, fmt_stamp, spy_since
 
 BOT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}_[A-Z.\-]+_(buy|sell)$")
 STATUS = {"accepted": "Queued", "new": "Queued", "pending_new": "Queued", "held": "Queued", "filled": "Filled",
@@ -35,6 +37,41 @@ stat_grid([
     ("Waiting to fill", f"{len(queued)}", ""),
 ])
 st.caption(f"Updated {fmt_stamp(snap['fetched'])} · paper money only · starting balance $100,000")
+
+# ---- Scoreboard vs SPY ----
+section("Scoreboard", "is the bot beating just buying SPY?")
+eq = snap["equity"]
+fills = [o["filled_at"] for o in orders if o["filled_at"] is not None]
+if not fills:
+    st.info("The scoreboard starts once our first orders fill (next market open). Until then the account is all "
+            "cash, and comparing it to SPY would be meaningless.")
+else:
+    first_fill = min(fills).astimezone(ET).date()
+    before = [(t, e) for t, e in eq if datetime.fromtimestamp(t, timezone.utc).date() < first_fill]
+    base = before[-1][1] if before else eq[0][1]
+    spy = spy_since(first_fill)
+    spy_before = spy[spy.index < pd.Timestamp(first_fill)]
+    spy_base = float(spy_before.iloc[-1]) if len(spy_before) else float(spy.iloc[0])
+    acct_ret, spy_ret = acct["equity"] / base - 1, float(spy.iloc[-1]) / spy_base - 1
+    invested = 1 - acct["cash"] / acct["equity"]
+    verdict_banner([("Beating SPY since our first fill?", acct_ret > spy_ret, f"account {acct_ret:+.2%} vs SPY {spy_ret:+.2%}"),
+                    ("Account mostly invested?", invested > 0.5, f"{invested:.0%} of the account is invested")])
+    st.caption(f"Since {first_fill:%b %d, %Y}: account {acct_ret:+.2%} (from \\${base:,.0f}) vs SPY {spy_ret:+.2%}. "
+               "With only a few \\$500 positions most of the account sits in cash, so it can't move much either "
+               "way; judge the picks by the signal log, and this by total return over time.")
+
+# ---- Risk rules ----
+section("Risk rules", "limits the bot enforces on every run")
+held = {}
+for p in positions:
+    held.setdefault(SECTORS.get(p["ticker"], "Other"), []).append(p["ticker"])
+worst = min((p["pl_pct"] for p in positions), default=0.0)
+stat_grid([(f"Daily loss limit", f"-{DAILY_LOSS_LIMIT:.0%}", "accent"), ("Today", f"{acct['day_pl_pct']:+.2%}", tone(acct["day_pl_pct"])),
+           ("Stop-loss per position", f"-{STOP_LOSS_PCT:.0%}", "accent"), ("Worst position", f"{worst:+.1%}", tone(worst)),
+           ("Max per sector", f"{MAX_PER_SECTOR}", "accent")])
+st.caption("Sectors held: " + (" · ".join(f"{k}: {', '.join(v)}" for k, v in sorted(held.items())) or "none yet")
+           + ". If today's loss hits the limit, new buys pause; a position down past the stop is sold; a sector over "
+           "the cap is skipped in favour of the next-best pick.")
 
 # ---- Positions ----
 section("Positions", "what we hold right now")

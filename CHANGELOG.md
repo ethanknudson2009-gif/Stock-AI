@@ -22,6 +22,12 @@
   First run: 335 articles, ~36k tokens (a few cents). Correlation with the word list is only 0.55; where they disagree Claude
   is more sensible (e.g. word list read a bank's $1.2B charge as +1.0). News Radar has a Claude / Word list toggle; the daily
   job uses Claude. Whether it predicts anything is still unproven — the track record will say.
+- **Risk rules** (`stock_ai/execution/risk.py`, applied in `bot.plan_orders` for the app, the CLI-free bot and the daily job):
+  max 2 holdings per sector (skipped names are replaced by the next-best pick), sell any position down 10% from cost
+  (not re-bought that day), and no new buys when the account is down 3% on the day. Notes appear on Paper Trade and in
+  `logs/daily_job.log`. Stop-loss and daily-loss need Alpaca (positions/account P&L); the demo broker skips those two.
+- **Scoreboard** on My Trades: account return vs SPY measured from the first filled order (shows "starts once orders fill"
+  until then), plus a Risk rules panel with current status and sector exposure.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 

@@ -343,3 +343,9 @@ def equity_history_chart(points: list[tuple]):
                                marker=dict(size=5), hovertemplate="%{x|%b %d}<br>$%{y:,.2f}<extra></extra>"))
     fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     return theme.style_fig(fig, height=300)
+
+
+@st.cache_data(ttl=MARKET_TTL, show_spinner=False)
+def spy_since(start_date: date) -> pd.Series:
+    """SPY closes from `start_date` to the latest trading day (for the account-vs-SPY scoreboard)."""
+    return _download("SPY", start_date - timedelta(days=5), latest_trading_day())["Close"]
