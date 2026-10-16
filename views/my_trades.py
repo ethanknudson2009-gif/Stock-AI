@@ -27,6 +27,8 @@ if snap is None:
     st.stop()
 
 acct, positions, orders = snap["account"], snap["positions"], snap["orders"]
+bot_orders = [o for o in orders if BOT_ID.match(o["id"] or "")]
+bot_tickers = {o["ticker"] for o in bot_orders}
 queued = [o for o in orders if STATUS.get(o["status"]) in ("Queued", "Partly filled")]
 unreal = sum(p["pl"] for p in positions)
 stat_grid([
@@ -54,8 +56,20 @@ else:
     spy_base = float(spy_before.iloc[-1]) if len(spy_before) else float(spy.iloc[0])
     acct_ret, spy_ret = acct["equity"] / base - 1, float(spy.iloc[-1]) / spy_base - 1
     invested = 1 - acct["cash"] / acct["equity"]
-    verdict_banner([("Beating SPY since our first fill?", acct_ret > spy_ret, f"account {acct_ret:+.2%} vs SPY {spy_ret:+.2%}"),
-                    ("Account mostly invested?", invested > 0.5, f"{invested:.0%} of the account is invested")])
+    items = [("Beating SPY since our first fill?", acct_ret > spy_ret, f"whole account {acct_ret:+.2%} vs SPY {spy_ret:+.2%}")]
+    bot_pos = [p for p in positions if p["ticker"] in bot_tickers]
+    bot_fills = [o["filled_at"] for o in bot_orders if o["filled_at"] is not None]
+    if bot_pos and bot_fills:
+        d0 = min(bot_fills).astimezone(ET).date()
+        sp = spy_since(d0)
+        sp_b = sp[sp.index < pd.Timestamp(d0)]
+        sp_base = float(sp_b.iloc[-1]) if len(sp_b) else float(sp.iloc[0])
+        cost = sum(p["avg_entry"] * p["qty"] for p in bot_pos)
+        bot_ret, bot_spy = sum(p["pl"] for p in bot_pos) / cost, float(sp.iloc[-1]) / sp_base - 1
+        items.append(("Bot picks only beating SPY?", bot_ret > bot_spy,
+                      f"bot positions {bot_ret:+.2%} vs SPY {bot_spy:+.2%} since {d0:%b %d}"))
+    items.append(("Account mostly invested?", invested > 0.5, f"{invested:.0%} of the account is invested"))
+    verdict_banner(items)
     st.caption(f"Since {first_fill:%b %d, %Y}: account {acct_ret:+.2%} (from \\${base:,.0f}) vs SPY {spy_ret:+.2%}. "
                "With only a few \\$500 positions most of the account sits in cash, so it can't move much either "
                "way; judge the picks by the signal log, and this by total return over time.")
@@ -74,13 +88,13 @@ st.caption("Sectors held: " + (" · ".join(f"{k}: {', '.join(v)}" for k, v in so
            "the cap is skipped in favour of the next-best pick.")
 
 # ---- Positions ----
-section("Positions", "what we hold right now")
+section("Positions", "Bot = bought by the daily job · Manual = yours (the bot never sells these)")
 if positions:
     cost = sum(p["avg_entry"] * p["qty"] for p in positions)
-    data_table(["Ticker", "Shares", "Avg entry", "Last", "Value", "P&L", "P&L %"],
-               [[p["ticker"], f"{p['qty']:g}", f"${p['avg_entry']:,.2f}", f"${p['price']:,.2f}", f"${p['value']:,.0f}",
-                 f"{p['pl']:+,.2f}", f"{p['pl_pct']:+.1%}"] for p in positions],
-               None, [["", "", "", "", "", tone(p["pl"]), tone(p["pl"])] for p in positions])
+    data_table(["Ticker", "Source", "Shares", "Avg entry", "Last", "Value", "P&L", "P&L %"],
+               [[p["ticker"], "Bot" if p["ticker"] in bot_tickers else "Manual", f"{p['qty']:g}", f"${p['avg_entry']:,.2f}",
+                 f"${p['price']:,.2f}", f"${p['value']:,.0f}", f"{p['pl']:+,.2f}", f"{p['pl_pct']:+.1%}"] for p in positions],
+               None, [["", "", "", "", "", "", tone(p["pl"]), tone(p["pl"])] for p in positions])
     st.caption(f"Invested ${cost:,.0f} · unrealized {unreal:+,.2f} USD")
 elif queued:
     st.info(f"No positions yet — {len(queued)} orders are accepted and queued. They fill when the market opens "

@@ -84,7 +84,9 @@ def plan_orders(
         signals_out.update(proba)
 
     notes = risk_out if risk_out is not None else []
-    details = broker.get_position_details() if hasattr(broker, "get_position_details") else []
+    managed = set(universe)  # the bot only touches its own universe; anything else (e.g. a manual SPY buy) is left alone
+    details = [d for d in (broker.get_position_details() if hasattr(broker, "get_position_details") else [])
+               if d["ticker"] in managed]
     stopped = stop_loss_tickers(details, STOP_LOSS_PCT)
     if stopped:
         notes.append(f"Stop-loss: {', '.join(stopped)} down {STOP_LOSS_PCT:.0%}+ from cost — sell, don't re-buy today.")
@@ -94,7 +96,7 @@ def plan_orders(
     if target != plain:
         notes.append(f"Sector cap ({MAX_PER_SECTOR} per sector) swapped out: {', '.join(sorted(set(plain) - set(target)))}.")
 
-    current = broker.get_positions()
+    current = {t: q for t, q in broker.get_positions().items() if t in managed}
     orders = diff(current, target, day, max_positions=top_n_count)
     # Size buys in dollars; sells close the existing share quantity.
     sized = []

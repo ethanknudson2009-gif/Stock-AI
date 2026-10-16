@@ -131,3 +131,15 @@ def test_plan_orders_applies_risk_rules_for_alpaca_like_broker(monkeypatch):
     orders = bot.plan_orders(broker, universe=["AAA", "BBB", "CCC"], top_n_count=2, risk_out=notes)
     assert [(o.ticker, o.side) for o in orders] == [("AAA", "sell")]    # stopped out; buys paused by daily loss
     assert any("Stop-loss" in n for n in notes) and any("Daily loss" in n for n in notes)
+
+
+def test_bot_leaves_positions_outside_its_universe_alone(monkeypatch):
+    import bot
+    from stock_ai.execution import FakeBroker
+
+    monkeypatch.setattr(bot, "latest_signals", lambda universe: {"AAA": 0.9, "BBB": 0.8})
+    broker = FakeBroker(dry_run=False)
+    broker.submit_order(bot.Order("SPY", "buy", "manual-spy"))          # held, but not in the bot's universe
+    orders = bot.plan_orders(broker, universe=["AAA", "BBB"], top_n_count=2)
+    assert all(o.ticker != "SPY" for o in orders)                      # never sold
+    assert {o.ticker for o in orders} == {"AAA", "BBB"}                # and it doesn't eat a top-N slot

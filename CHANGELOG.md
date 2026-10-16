@@ -28,6 +28,9 @@
   `logs/daily_job.log`. Stop-loss and daily-loss need Alpaca (positions/account P&L); the demo broker skips those two.
 - **Scoreboard** on My Trades: account return vs SPY measured from the first filled order (shows "starts once orders fill"
   until then), plus a Risk rules panel with current status and sector exposure.
+- The bot now manages **only its own 30-stock universe**: positions outside it (e.g. the manual 50-share SPY buy) are never
+  sold and don't use up a top-N slot. My Trades labels positions Bot/Manual and the scoreboard adds a bot-picks-only line
+  next to the whole-account comparison, so the SPY holding doesn't blur how the bot is doing.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 
