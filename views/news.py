@@ -65,7 +65,8 @@ by_claude = int(news["sentiment_llm"].notna().sum()) if "sentiment_llm" in news 
 if scoring == "Claude" and by_claude == 0:
     st.warning("Claude scoring is unavailable right now"
                + (f" ({stats['error']})" if stats.get("error") else " (no API key)") + " — showing word-list scores.")
-how = (f"Claude read {by_claude} of {len(news)} articles for meaning" if by_claude else
+how = ("Tested on 2 years of history (45k articles, 30 stocks), the simple word-list tone had no predictive power for "
+       "next-week returns (correlation ≈ 0). Claude's reading is untested. " if True else "") + (f"Claude read {by_claude} of {len(news)} articles for meaning" if by_claude else
        "A simple finance-word list scored the headlines") + ", weighted by freshness. Nothing here is proven to " \
       "predict prices — the track record at the bottom measures it live."
 banner("info", "How to read this", how, icon="info")

@@ -46,6 +46,18 @@ def _closes(ticker: str, **kw):
     return (s.iloc[:, 0] if s.ndim == 2 else s).dropna()
 
 
+def _notify(title: str, msg: str) -> None:
+    """Best-effort macOS notification (never raises)."""
+    import subprocess
+
+    try:
+        safe = lambda t: t.replace("\\", " ").replace('"', "'")[:180]  # noqa: E731
+        subprocess.run(["osascript", "-e", f'display notification "{safe(msg)}" with title "{safe(title)}"'],
+                       check=False, timeout=10, capture_output=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _log(msg: str) -> None:
     line = f"{datetime.now(ET):%Y-%m-%d %H:%M:%S %Z}  {msg}"
     print(line, flush=True)
@@ -84,6 +96,8 @@ def run(trade: bool, force: bool) -> int:
     orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs, risk_out=notes)
     for n in notes:
         _log(f"risk rule: {n}")
+    if notes:
+        _notify("Stock AI: risk rule applied", " ".join(notes))
     bot.enforce_caps(orders)
     px = {t: float(_closes(t, period="5d").iloc[-1]) for t in sigs}
     added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)
@@ -112,6 +126,8 @@ def run(trade: bool, force: bool) -> int:
     STATE.parent.mkdir(exist_ok=True)
     STATE.write_text(json.dumps({"last_done": now.date().isoformat()}))
     _log("done")
+    _notify("Stock AI: daily run done", f"{len(orders)} orders {'placed' if trade else 'planned'}: "
+            + ", ".join(f"{o.side} {o.ticker}" for o in orders) if orders else "No order changes today.")
     return 0
 
 
@@ -124,4 +140,5 @@ if __name__ == "__main__":
         sys.exit(run(args.trade, args.force))
     except Exception:  # noqa: BLE001
         _log("FAILED:\n" + traceback.format_exc())
+        _notify("Stock AI: daily run FAILED", "Check logs/daily_job.log")
         sys.exit(1)

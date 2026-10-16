@@ -31,6 +31,13 @@
 - The bot now manages **only its own 30-stock universe**: positions outside it (e.g. the manual 50-share SPY buy) are never
   sold and don't use up a top-N slot. My Trades labels positions Bot/Manual and the scoreboard adds a bot-picks-only line
   next to the whole-account comparison, so the SPY holding doesn't blur how the bot is doing.
+- **News tone backtest** (`scripts/news_backtest_fetch.py`, `scripts/news_backtest.py`; 45,149 Alpaca articles, Oct 2024 - Oct 2026,
+  30 stocks, no look-ahead: after-4pm articles count from the next trading day). The word-list tone has **no predictive power**:
+  5-day rank correlation (IC) -0.002 (hit rate 52%); top-quintile 5d return +0.28% vs bottom +0.25%; a daily top-5-by-news
+  portfolio is +36.8% vs +32.9% equal-weight at 0 bps (Sharpe 0.95 vs 1.14; excess-Sharpe 95% CI [-1.1, +1.4]) and -7.5% after 10 bps
+  (79%/day turnover). Claude scoring was not backtested (45k articles ~ millions of tokens for a window too short to detect a small
+  edge); the live pick log will tell. An early run showed +675% — an artifact of picking the first tickers when no news existed; fixed.
+- **Mac notifications** from the daily job: run summary, risk-rule triggers, and failures.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 
