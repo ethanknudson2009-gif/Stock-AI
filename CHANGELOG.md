@@ -38,6 +38,8 @@
   (79%/day turnover). Claude scoring was not backtested (45k articles ~ millions of tokens for a window too short to detect a small
   edge); the live pick log will tell. An early run showed +675% — an artifact of picking the first tickers when no news existed; fixed.
 - **Mac notifications** from the daily job: run summary, risk-rule triggers, and failures.
+- Home now has a **Your bot** panel (account value, today, positions, orders waiting, last daily run) and an **In the news**
+  panel (newest headlines), plus a 10-ticker market grid.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 

@@ -1,13 +1,21 @@
 """Home — live market overview, ticker search, preset launches."""
 
+import json
+from html import escape
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
 
 from stock_ai.config import DEFAULT_UNIVERSE, PRESETS
 from ui import theme
-from ui.components import hero, nav_card, section, skeleton_grid, ticker_grid
-from ui_common import fmt_stamp, latest_trading_day, now_et, valid_ticker, watchlist_quotes
+from ui.components import hero, nav_card, section, skeleton_grid, stat_grid, ticker_grid, tone
+from ui_common import (account_snapshot, fmt_stamp, latest_trading_day, news_for, now_et, valid_ticker,
+                       watchlist_quotes)
 
-TICKERS = tuple(DEFAULT_UNIVERSE[:8])
+STATE = Path(__file__).resolve().parent.parent / "logs" / "daily_state.json"
+
+TICKERS = tuple(DEFAULT_UNIVERSE[:10])
 ss = st.session_state
 
 
@@ -27,7 +35,7 @@ bar = st.columns([4, 1], vertical_alignment="center")
 
 placeholder = st.empty()
 with placeholder:
-    st.markdown(skeleton_grid(8), unsafe_allow_html=True)
+    st.markdown(skeleton_grid(10), unsafe_allow_html=True)
 quotes, fetched_at = watchlist_quotes(TICKERS)
 placeholder.empty()
 
@@ -40,6 +48,40 @@ bar[0].caption(
 bar[1].button("Refresh", icon=":material/refresh:", on_click=_refresh, width="stretch")
 
 ticker_grid(quotes, theme_name=theme.current())
+
+# ---- Bot + news at a glance ----
+g1, g2 = st.columns([1, 1.25], gap="large")
+with g1:
+    section("Your bot", "Alpaca paper account", eyebrow="At a glance")
+    snap = account_snapshot()
+    if snap is None:
+        st.info("Connect Alpaca keys in .env to see your paper account here.")
+    else:
+        a, pos, od = snap["account"], snap["positions"], snap["orders"]
+        waiting = sum(1 for o in od if o["status"] in ("accepted", "new", "pending_new", "held", "partially_filled"))
+        try:
+            last_run = json.loads(STATE.read_text()).get("last_done", "not yet")
+        except (OSError, ValueError):
+            last_run = "not yet"
+        stat_grid([("Account value", f"${a['equity']:,.0f}", "accent"),
+                   (f"Today ({a['day_pl_pct']:+.2%})", f"{a['day_pl']:+,.2f}", tone(a["day_pl"])),
+                   ("Positions", f"{len(pos)}", ""), ("Orders waiting", f"{waiting}", ""),
+                   ("Last daily run", last_run, "")])
+        st.page_link("views/my_trades.py", label="Open My Trades", icon=":material/arrow_forward:")
+with g2:
+    section("In the news", "newest headlines across the 30-stock universe", eyebrow="Live news")
+    try:
+        feed = news_for(tuple(DEFAULT_UNIVERSE), 1, False)
+        feed = feed[feed["symbols"].apply(len) <= 3].sort_values("time", ascending=False).head(6)
+        for _, n in feed.iterrows():
+            hrs = (pd.Timestamp.now(tz="UTC") - n["time"]).total_seconds() / 3600
+            when = f"{hrs * 60:.0f}m ago" if hrs < 1 else f"{hrs:.0f}h ago"
+            st.markdown(f'<div class="note"><span class="badge">{escape(", ".join(n["symbols"][:3]))}</span>&nbsp; '
+                        f'<a href="{escape(n["url"] or "#")}" target="_blank" rel="noopener">{escape(n["headline"][:130] + ("…" if len(n["headline"]) > 130 else ""))}</a> '
+                        f'<span style="opacity:.6">— {when}</span></div>', unsafe_allow_html=True)
+        st.page_link("views/news.py", label="Open News Radar", icon=":material/arrow_forward:")
+    except Exception:  # noqa: BLE001 — Home must still load without news/keys
+        st.info("News is unavailable right now. Check the Alpaca keys in .env.")
 
 # ---- Ticker search ----
 section("Analyze a ticker", "Any US-listed symbol — AAPL, MSFT, NVDA, TSLA…", eyebrow="Search")
