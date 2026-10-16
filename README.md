@@ -63,6 +63,7 @@ streamlit run app.py                         # the app at http://localhost:8501
 PYTHONPATH=. python scripts/run_harness.py   # model-vs-baseline harness over 30 tickers (needs data/cache/raw.pkl)
 python scripts/install_daily_job.py          # schedule the after-close paper-trading job (macOS launchd)
 python scripts/install_daily_job.py --uninstall
+scripts/go_live.sh                           # public temporary URL via Cloudflare tunnel, password-gated (--stop to close)
 touch KILL_SWITCH                            # halt all order submission
 python -m pytest -q
 ```
