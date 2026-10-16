@@ -64,3 +64,22 @@ def test_live_path_submits_and_is_idempotent(tmp_path):
     bot.submit_orders(broker, orders, **kw)
     bot.submit_orders(broker, orders, **kw)  # resubmit same day → no duplicates
     assert len(broker.submissions) == 2
+
+
+def test_daily_job_runs_once_per_trading_day_after_the_close():
+    import importlib.util
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    spec = importlib.util.spec_from_file_location("daily_job", Path(__file__).resolve().parent.parent / "scripts" / "daily_job.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    et = ZoneInfo("America/New_York")
+    fri_eve, fri_noon, sat = (datetime(2026, 10, 16, 16, 40, tzinfo=et), datetime(2026, 10, 16, 12, 0, tzinfo=et),
+                              datetime(2026, 10, 17, 16, 40, tzinfo=et))
+    assert mod.should_run(fri_eve, None)[0]
+    assert not mod.should_run(fri_eve, "2026-10-16")[0]      # already done today
+    assert not mod.should_run(fri_noon, None)[0]             # market still open
+    assert not mod.should_run(sat, None)[0]                  # weekend
+    assert mod.should_run(fri_noon, None, force=True)[0]

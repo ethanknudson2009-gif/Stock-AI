@@ -13,6 +13,10 @@
 - Stress tests (30 tickers): Sharpe vs buy & hold 0.68/0.66/0.64/0.56 at 0/5/10/25 bps; worse in every sub-period
   (2010-17, 2017-22, 2022-26); higher thresholds hurt; shuffled-label control scored the same Sharpe (0.64) — the model
   mostly tracks buy & hold, with at best a tiny edge (Brier beat base rate on 12/30 real vs 8/30 shuffled).
+- **Daily job** (`scripts/daily_job.py`, installed as launch agent `com.stockai.daily` via `scripts/install_daily_job.py`):
+  weekdays after the close it logs the model's signals, rebalances the Alpaca PAPER account to the top-5 (caps + KILL_SWITCH
+  apply), logs news picks, and grades old signals/picks. Skips weekends/holidays and runs once per day. Output: `logs/daily_job.log`.
+  Disable: `python scripts/install_daily_job.py --uninstall`, or `touch KILL_SWITCH` to halt orders only.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 
