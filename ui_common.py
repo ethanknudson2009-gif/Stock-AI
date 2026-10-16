@@ -308,3 +308,11 @@ def has_edge(ticker: str) -> bool | None:
         return edge_check(wf["proba"], wf["labels"])["has_edge"]
     except Exception:  # noqa: BLE001
         return None
+
+
+@st.cache_data(ttl=MARKET_TTL, show_spinner=False)
+def news_for(symbols: tuple[str, ...], days: int) -> pd.DataFrame:
+    """Cached Alpaca news for a universe (refreshes every 5 minutes)."""
+    from stock_ai.data.news import fetch_news  # noqa: PLC0415
+
+    return fetch_news(list(symbols), days=days)

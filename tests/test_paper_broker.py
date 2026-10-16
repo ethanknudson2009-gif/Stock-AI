@@ -99,10 +99,16 @@ def test_trading_day_timezone():
     assert trading_day_today(et) == date(2026, 3, 1)
 
 
-def test_paper_is_sole_alpaca_importer():
+def test_paper_is_sole_alpaca_trading_importer():
+    """Only paper.py may touch alpaca-py's trading side; data/news.py may use the read-only data client."""
+    allowed = {"paper.py": None, "news.py": "alpaca.data"}
     offenders = []
     for p in (REPO_ROOT / "stock_ai").rglob("*.py"):
         text = p.read_text()
-        if ("import alpaca" in text or "from alpaca" in text) and p.name != "paper.py":
+        if "import alpaca" not in text and "from alpaca" not in text:
+            continue
+        if p.name not in allowed:
             offenders.append(p.relative_to(REPO_ROOT).as_posix())
-    assert offenders == [], f"alpaca-py imported outside paper.py: {offenders}"
+        elif allowed[p.name] and "alpaca.trading" in text:
+            offenders.append(f"{p.name} (imports alpaca.trading)")
+    assert offenders == [], f"alpaca-py imported outside its allowed place: {offenders}"

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-16 (later) — Alpaca connected + News Radar
+- Alpaca paper keys in `.env`; Paper Trade page now shows the real paper account (verified: $100k cash, no positions). DRY_RUN still on.
+- New **News Radar** page: Alpaca/Benzinga headlines for a universe, scored with a transparent finance-word lexicon
+  (negation-aware), weighted by freshness and by how many tickers an article tags, shrunk when coverage is thin.
+  Shows most positive/negative names, a ranking with price move, per-ticker headlines, and a **track record**:
+  each day's top-5 positive-news picks are logged and graded 5 trading days later against the base rate.
+- The lexicon is crude (headline words only) and unproven; the track record is how we find out. Not a trade signal.
+- Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
+  (still forbidden from `alpaca.trading`).
+
 ## 2026-10-16 — Honest model + honest UI
 
 ### Headline

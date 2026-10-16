@@ -133,3 +133,35 @@ def test_excess_labels_compare_against_spy():
     assert classifier.build_labels(df, horizon=2, target="excess")["label"].eq(0).all()   # SPY outran it
     assert classifier.build_labels(df, horizon=2)["label"].eq(1).all()                    # but it still rose
     assert len(classifier.build_labels(df, horizon=2)) == 6                                 # tail dropped
+
+
+def test_news_sentiment_scores_and_negation():
+    from stock_ai.data.news import score_text
+
+    assert score_text("Apple beats estimates, raises guidance, stock surges") > 0.5
+    assert score_text("Company misses, cuts outlook amid probe") < -0.5
+    assert score_text("Results not strong") < 0          # negator flips 'strong'
+    assert score_text("Company holds annual meeting") == 0.0
+
+
+def test_news_ranking_weights_recency_roundups_and_thin_coverage():
+    from stock_ai.data.news import rank_tickers
+
+    now = pd.Timestamp("2026-10-16 18:00", tz="UTC")
+    news = pd.DataFrame([
+        {"time": now - pd.Timedelta(hours=1), "symbols": ["AAA"], "sentiment": 0.8},
+        {"time": now - pd.Timedelta(hours=2), "symbols": ["AAA"], "sentiment": 0.6},
+        {"time": now - pd.Timedelta(hours=1), "symbols": ["BBB"], "sentiment": 1.0},                 # one article only
+        {"time": now - pd.Timedelta(hours=3), "symbols": ["CCC", "AAA", "BBB", "DDD", "EEE"], "sentiment": -1.0},
+    ])
+    r = rank_tickers(news, ["AAA", "BBB", "CCC"], now=now).set_index("ticker")
+    assert r.loc["AAA", "articles"] == 3 and r.loc["AAA", "score"] > 0.3
+    assert r.loc["BBB", "score"] < r.loc["BBB", "sentiment"]       # thin coverage is shrunk
+    assert r.loc["AAA", "score"] > r.loc["BBB", "score"]
+    assert r.loc["CCC", "score"] < 0
+
+
+def test_news_lexicon_catches_lowered_price_targets():
+    from stock_ai.data.news import score_text
+
+    assert score_text("Analyst maintains outperform but lowers price target") == 0.0   # mixed, not +1

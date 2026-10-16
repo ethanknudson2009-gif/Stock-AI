@@ -56,8 +56,8 @@ with st.form("ticker_search", clear_on_submit=False):
             st.switch_page("views/single_ticker.py")
 
 # ---- Launchers ----
-section("Analysis suite", "Four tools, one honest engine", eyebrow="The full picture")
-row1 = st.columns(2, gap="medium")
+section("Analysis suite", "Five tools, one honest engine", eyebrow="The full picture")
+row1 = st.columns(3, gap="medium")
 row2 = st.columns(2, gap="medium")
 with row1[0]:
     nav_card("single", "views/single_ticker.py", "candlestick_chart", "Single Ticker",
@@ -65,6 +65,9 @@ with row1[0]:
 with row1[1]:
     nav_card("portfolio", "views/portfolio.py", "donut_large", "Portfolio",
              "Rank a universe each day, hold the top N, see a true portfolio Sharpe.")
+with row1[2]:
+    nav_card("news", "views/news.py", "newspaper", "News Radar",
+             "Fresh headlines scored for tone and ranked by ticker, with a live track record.")
 with row2[0]:
     nav_card("paper", "views/paper_trade.py", "receipt_long", "Paper Trade",
              "Preview today's orders, then confirm — safe by default with DRY_RUN.")
