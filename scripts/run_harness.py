@@ -32,7 +32,19 @@ for kind in ("logreg", "gbm", "rf"):
     VARIANTS[f"{kind}_ranks"] = Variant(f"{kind}_ranks", ModelSpec(kind, (*WIDE, *RANK_COLUMNS)))
 VARIANTS["rf_vt"] = Variant("rf_vt", ModelSpec("rf", BASE), sizing="voltarget")
 
+def ensure_cache() -> None:
+    """Download 2009-now prices for the 30-stock universe + SPY the first time (not committed to git)."""
+    if CACHE.exists():
+        return
+    from stock_ai.config import DEFAULT_UNIVERSE
+    from stock_ai.data.loader import fetch_price_history
+
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle({t: fetch_price_history(t, "2009-01-01") for t in [*DEFAULT_UNIVERSE, "SPY"]}, CACHE)
+
+
 if __name__ == "__main__":
+    ensure_cache()
     frames = add_cross_sectional_ranks(build_frames(pd.read_pickle(CACHE)))
     names = sys.argv[1:] or list(VARIANTS)
     for n in names:
