@@ -2,11 +2,9 @@
 
 import streamlit as st
 
-from ui_common import hero, inject_css
+from ui.components import page_head
 
-st.set_page_config(page_title="About · Stock AI", page_icon="ℹ️", layout="wide")
-inject_css()
-hero('ℹ️ <span class="accent">About</span>', "What this is, how it works, and the honest caveats.")
+page_head("About", "What this is, how it works, and the honest caveats.", eyebrow="Docs")
 
 st.subheader("What it does")
 st.markdown("""

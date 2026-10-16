@@ -28,3 +28,6 @@ models/*.joblib
 # Bot runtime
 KILL_SWITCH
 logs/
+
+# Local UI screenshots
+screenshots/

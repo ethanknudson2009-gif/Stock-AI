@@ -1,15 +1,16 @@
 # Do NOT show exception details (incl. any API keys) in the browser.
 [client]
 showErrorDetails = false
+toolbarMode = "minimal"   # hides the Deploy button and the hamburger menu
 
 [server]
 headless = true
 
-# thinkorswim-style terminal theme (gold / green / tan on charcoal).
+# Base theme for Streamlit's native widgets. The real design tokens (and the
+# dark/light switch) live in ui/theme.py; these mirror its dark values.
 [theme]
 base = "dark"
-primaryColor = "#D9A441"             # gold accent
-backgroundColor = "#0B0C0E"          # terminal charcoal
-secondaryBackgroundColor = "#15171B"  # panel
-textColor = "#D7D2C4"                # tan-gray
-font = "monospace"
+primaryColor = "#f26b3a"
+backgroundColor = "#050505"
+secondaryBackgroundColor = "#0e0e0f"
+textColor = "#f5f5f4"
