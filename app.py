@@ -6,10 +6,13 @@ footer, so every page gets them. Page content lives in views/.
 """
 
 import streamlit as st
+from dotenv import load_dotenv
 
 from ui import theme
+from ui.auth import gate
 from ui.components import footer
 
+load_dotenv()
 st.set_page_config(page_title="Stock AI", page_icon=":material/monitoring:", layout="wide")
 
 theme.init()
@@ -17,6 +20,7 @@ with st.container(key="theme_toggle"):
     st.toggle(":material/light_mode:", key="light_mode")
 theme.apply()
 st.logo(theme.logo_path(), size="large")
+gate()  # internet visitors (via the Cloudflare tunnel) must log in; local visits pass straight through
 
 pages = [
     st.Page("views/home.py", title="Home", icon=":material/home:", default=True),
