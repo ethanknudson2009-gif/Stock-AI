@@ -76,3 +76,20 @@ def test_dry_run_reads_env(monkeypatch):
     assert FakeBroker().dry_run is True
     monkeypatch.setenv("DRY_RUN", "false")
     assert FakeBroker().dry_run is False
+
+
+def test_signal_log_records_once_and_resolves_outcomes(tmp_path):
+    import pandas as pd
+
+    from stock_ai.execution.signal_log import live_accuracy, log_signals, resolve_outcomes
+
+    path = tmp_path / "signals.csv"
+    assert log_signals({"AAA": 0.7, "BBB": 0.3}, {"AAA": 100.0, "BBB": 50.0}, "2024-01-02", path) == 2
+    assert log_signals({"AAA": 0.7}, {"AAA": 100.0}, "2024-01-02", path) == 0   # same day, no duplicates
+    idx = pd.bdate_range("2024-01-02", periods=8)
+    closes = {"AAA": pd.Series(range(100, 108), index=idx, dtype=float),          # rises -> went_up
+              "BBB": pd.Series([50.0] + [49.0] * 7, index=idx)}                   # falls  -> went down
+    log = resolve_outcomes(closes, path)
+    assert list(log["went_up"]) == [1.0, 0.0]
+    acc = live_accuracy(log)
+    assert acc["n"] == 2 and acc["accuracy"] == 1.0   # both calls (0.7 up, 0.3 down) were right

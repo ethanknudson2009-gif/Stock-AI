@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+from stock_ai.backtest.engine import _max_drawdown, _sharpe_ratio
 from stock_ai.backtest.multi_engine import combine_signals, run_multi_backtest
 from stock_ai.config import PRESETS
 from stock_ai.models.evaluation import classification_stats
@@ -101,12 +102,22 @@ except ValueError:
     st.error("None of these tickers had enough history in this range. Try a longer range.")
     st.stop()
 mom = run_multi_backtest(returns_m, momentum_weights(returns_m, n=top_n), cost_bps=cost_bps)
+try:  # SPY as a second benchmark, on the portfolio's own calendar
+    from ui_common import load_prices as _lp  # noqa: PLC0415
+    spy_ret = _lp("SPY", start, end)["return_1d"].reindex(proba_m.index).fillna(0.0)
+    spy_cum = (1 + spy_ret).cumprod()
+except Exception:  # noqa: BLE001 — a missing SPY shouldn't sink the page
+    spy_ret = spy_cum = None
 pooled = classification_stats(pd.concat(proba_by.values()), pd.concat(labels_by.values()))
 
 section("Portfolio · walk-forward out-of-sample",
         f"top-{top_n} of {len(proba_by)} · {res['n_days']:,} sessions · ~{res['avg_positions']:.1f} names/day")
 delta = res["total_return"] - res["buy_hold_return"]
-verdict(f"{'Beat' if delta >= 0 else 'Trailed'} the equal-weight benchmark by {abs(delta):.1%}.", delta >= 0)
+spy_txt = ""
+if spy_cum is not None:
+    d_spy = res["total_return"] - (spy_cum.iloc[-1] - 1)
+    spy_txt = f" and {'beat' if d_spy >= 0 else 'trailed'} SPY by {abs(d_spy):.1%}"
+verdict(f"{'Beat' if delta >= 0 else 'Trailed'} the equal-weight benchmark by {abs(delta):.1%}{spy_txt}.", delta >= 0)
 note("Survivorship-biased: these are today's companies, so the past looks rosier than it was. "
      "Hypothetical results, not financial advice.")
 if skipped:
@@ -114,6 +125,7 @@ if skipped:
 stat_grid([
     ("Portfolio return", f"{res['total_return']:+.1%}", tone(res["total_return"])),
     ("Equal-weight all", f"{res['buy_hold_return']:+.1%}", ""),
+    *([("SPY", f"{spy_cum.iloc[-1] - 1:+.1%}", "")] if spy_cum is not None else []),
     ("Portfolio Sharpe", f"{res['portfolio_sharpe']:.2f}", tone(res["portfolio_sharpe"])),
     ("Max drawdown", f"{res['max_drawdown']:.1%}", "down"),
     ("Turnover / day", f"{res['turnover_daily']:.0%}", ""),
@@ -132,12 +144,18 @@ for name, r, sharpe in (("Model top-N", res, res["portfolio_sharpe"]),
     rows.append([name, f"{r['total_return']:+.1%}", f"{sharpe:.2f}", f"{r['max_drawdown']:.1%}",
                  f"{r['turnover_daily']:.0%}"])
     tones.append(["", tone(r["total_return"]), "", "down", ""])
+if spy_cum is not None:
+    rows.append(["SPY (buy & hold)", f"{spy_cum.iloc[-1] - 1:+.1%}", f"{_sharpe_ratio(spy_ret):.2f}",
+                 f"{_max_drawdown(spy_cum):.1%}", "0%"])
+    tones.append(["", tone(spy_cum.iloc[-1] - 1), "", "down", ""])
 data_table(["Strategy", "Return", "Sharpe", "Max drawdown", "Turnover / day"], rows, 0, tones)
 
 section("Equity curve", "growth of $1 · shaded panel = model drawdown")
-st.plotly_chart(equity_chart({"Model top-N": res["cumulative_returns"],
-                              "Equal-weight all": res["benchmark_cumulative"],
-                              "Momentum top-N": mom["cumulative_returns"]}), width="stretch", theme=None)
+curves = {"Model top-N": res["cumulative_returns"], "Equal-weight all": res["benchmark_cumulative"],
+          "Momentum top-N": mom["cumulative_returns"]}
+if spy_cum is not None:
+    curves["SPY"] = spy_cum
+st.plotly_chart(equity_chart(curves), width="stretch", theme=None)
 
 h1, h2 = st.columns([1, 1.3], gap="medium")
 with h1:
@@ -154,7 +172,8 @@ with h2:
     st.plotly_chart(contribution_chart(res["contributions"]), width="stretch", theme=None)
 
 equity = pd.DataFrame({"model_top_n": res["cumulative_returns"], "equal_weight": res["benchmark_cumulative"],
-                       "momentum_top_n": mom["cumulative_returns"]}).round(5)
+                       "momentum_top_n": mom["cumulative_returns"],
+                       **({"spy": spy_cum} if spy_cum is not None else {})}).round(5)
 w = res["weights"]
 trades = (w.diff().fillna(w).stack().loc[lambda s: s != 0].rename("weight_change").round(4).reset_index()
           .rename(columns={"level_0": "date", "level_1": "ticker"}))

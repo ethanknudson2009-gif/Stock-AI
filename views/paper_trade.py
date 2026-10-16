@@ -1,11 +1,15 @@
 """Paper-trade preview & confirm page (safe by default: DRY_RUN on)."""
 
+import pandas as pd
 import streamlit as st
 
 import bot
 from stock_ai.config import PRESETS
+from stock_ai.execution.signal_log import live_accuracy, log_signals, resolve_outcomes
 from ui.components import banner, data_table, note, page_head, section, stat_grid
-from ui_common import SETTINGS, get_broker, latest_prices, parse_tickers, valid_ticker
+from ui_common import SETTINGS, get_broker, has_edge, latest_prices, parse_tickers, recent_closes, valid_ticker
+
+BACKTEST_ACC = 0.551   # 30-ticker harness median accuracy of the current model (2026-10-16)
 
 ss = st.session_state
 page_head("Paper Trade", "Preview today's intended orders, review them, then confirm.", eyebrow="Execution")
@@ -25,6 +29,23 @@ stat_grid([
 ])
 st.caption(broker_label)
 
+# ---- Positions & P&L ----
+section("Open positions & P&L", broker_label)
+try:
+    details = broker.get_position_details() if hasattr(broker, "get_position_details") else None
+except Exception as exc:  # noqa: BLE001
+    details = None
+    st.warning(SETTINGS.scrub(f"Could not load positions: {type(exc).__name__}: {exc}"))
+if details:
+    data_table(["Ticker", "Qty", "Avg entry", "Last", "Value", "Unrealized P&L"],
+               [[d["ticker"], f"{d['qty']:g}", f"${d['avg_entry']:,.2f}", f"${d['price']:,.2f}",
+                 f"${d['value']:,.0f}", f"{d['pl']:+,.0f} ({d['pl_pct']:+.1%})"] for d in details],
+               None, [["", "", "", "", "", "up" if d["pl"] >= 0 else "down"] for d in details])
+    st.caption(f"Total unrealized P&L: {sum(d['pl'] for d in details):+,.2f} USD")
+else:
+    st.info("No open positions to show" + (" — connect Alpaca paper keys to see your real account."
+            if broker_label.startswith("FakeBroker") else "."))
+
 with st.container(key="controls_paper"):
     c = st.columns([1.6, 1], vertical_alignment="bottom")
     preset = c[0].segmented_control("Universe", [*PRESETS, "Custom"], default="Mega-cap tech", key="pt_preset")
@@ -42,22 +63,51 @@ if preview:
         st.error(f"These don't look like tickers: {', '.join(bad)}.")
         st.stop()
     try:
+        sigs: dict = {}
         with st.spinner(f"Computing today's signals for {len(universe)} tickers…"):
-            orders = bot.plan_orders(broker, universe=universe, top_n_count=top_n)
+            orders = bot.plan_orders(broker, universe=universe, top_n_count=top_n, signals_out=sigs)
             bot.enforce_caps(orders)
+        px = latest_prices(tuple(sigs))
+        log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)  # for live-vs-backtest tracking
     except Exception as exc:  # noqa: BLE001
         st.error(SETTINGS.scrub(f"Could not build orders: {type(exc).__name__}: {exc}"))
         st.stop()
     ss["pending_orders"] = orders
     ss.pop("pt_ack", None)
 
+def _signal_log_section():
+    section("Signal log · live vs backtest", "every previewed signal, graded 5 trading days later")
+    if not bot.SIGNAL_LOG.exists():
+        st.info("No signals logged yet. Each **Preview orders** records the model's P(up) per ticker here.")
+        return
+    raw = pd.read_csv(bot.SIGNAL_LOG)
+    closes = recent_closes(tuple(sorted(raw["ticker"].unique())), str(raw["date"].min()))
+    log = resolve_outcomes(closes, bot.SIGNAL_LOG)
+    acc = live_accuracy(log)
+    stat_grid([("Signals logged", f"{len(log)}", ""), ("Graded so far", f"{acc['n']}", ""),
+               ("Live accuracy", f"{acc['accuracy']:.1%}" if acc["n"] else "—", "accent"),
+               ("Backtest accuracy", f"{BACKTEST_ACC:.1%}", "")])
+    st.caption("Live accuracy needs many graded signals before it means anything; with few, it is mostly luck. "
+               + (f"Of those graded, {acc['base_rate']:.0%} went up (the base rate)." if acc["n"] else
+                  f"{acc['pending']} signals are still waiting for their 5-day outcome."))
+    shown = log.sort_values("date", ascending=False).head(30)
+    data_table(["Date", "Ticker", "P(up)", "Price", "Outcome", "Went up?"],
+               [[r["date"], r["ticker"], f"{r['p_up']:.0%}", f"${r['price']:,.2f}" if pd.notna(r["price"]) else "—",
+                 f"${r['outcome_price']:,.2f}" if pd.notna(r["outcome_price"]) else "pending",
+                 "—" if pd.isna(r["went_up"]) else ("Yes" if r["went_up"] else "No")] for _, r in shown.iterrows()],
+               None, [["", "", "", "", "", "up" if r["went_up"] == 1 else ("down" if r["went_up"] == 0 else "")]
+                      for _, r in shown.iterrows()])
+
+
 if "pending_orders" not in ss:
     st.info("Choose a universe and click **Preview orders**. Nothing is sent at this step.")
+    _signal_log_section()
     st.stop()
 
 orders = ss.get("pending_orders") or []
 if not orders:
     st.success("No changes needed — target holdings already match current positions.")
+    _signal_log_section()
     st.stop()
 
 # ---- Step 1: review ----
@@ -73,9 +123,15 @@ for o in orders:
         shares = f"{o.qty:g}" if o.qty else "all"
         dollars = (o.qty or 0) * px if px else 0.0
     total += dollars
-    rows.append([o.ticker, o.side.upper(), shares, f"${px:,.2f}" if px else "—", f"${dollars:,.0f}"])
-    tones.append(["", "up" if o.side == "buy" else "down", "", "", ""])
-data_table(["Ticker", "Side", "Shares (est.)", "Last price", "Est. dollars"], rows, None, tones)
+    edge = has_edge(o.ticker) if o.side == "buy" else None
+    rows.append([o.ticker, o.side.upper(), shares, f"${px:,.2f}" if px else "—", f"${dollars:,.0f}",
+                 "—" if edge is None else ("Yes" if edge else "No edge")])
+    tones.append(["", "up" if o.side == "buy" else "down", "", "", "", "down" if edge is False else ""])
+data_table(["Ticker", "Side", "Shares (est.)", "Last price", "Est. dollars", "Model edge?"], rows, None, tones)
+if any(r[5] == "No edge" for r in rows):
+    banner("warn", "Some buys have no proven model edge",
+           "For the tickers marked 'No edge' the model has not beaten the base rate out of sample. "
+           "Treat these as a plumbing test, not a recommendation.", icon="info")
 note(f"Estimated gross {total:,.0f} USD. Share counts are estimates from the latest close; fills will differ.")
 
 # ---- Step 2: confirm ----
@@ -95,3 +151,5 @@ if st.button("Confirm & submit", type="primary", icon=":material/send:", disable
     else:
         st.success(f"Submitted {result['submitted']} paper orders.")
     ss.pop("pending_orders", None)
+
+_signal_log_section()

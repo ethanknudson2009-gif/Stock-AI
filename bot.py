@@ -27,6 +27,7 @@ from stock_ai.strategy.ranker import top_n
 REPO_ROOT = Path(__file__).resolve().parent
 KILL_SWITCH = REPO_ROOT / "KILL_SWITCH"
 ORDER_LOG = REPO_ROOT / "logs" / "orders.csv"
+SIGNAL_LOG = REPO_ROOT / "logs" / "signals.csv"
 
 MAX_ORDER_USD = 500.0      # hard per-order dollar cap (BL-02)
 MAX_ORDERS_PER_DAY = 20    # hard daily order-count cap (BL-03)
@@ -63,11 +64,17 @@ def plan_orders(
     top_n_count: int = 5,
     order_usd: float = MAX_ORDER_USD,
     trading_day: date | None = None,
+    signals_out: dict | None = None,
 ) -> list[Order]:
-    """Compute today's intended orders (no submission). Used by the Preview step."""
+    """Compute today's intended orders (no submission). Used by the Preview step.
+
+    If `signals_out` is a dict it is filled with each ticker's P(up) so the caller can log it.
+    """
     universe = universe or list(DEFAULT_UNIVERSE)
     day = trading_day or trading_day_today()
     proba = latest_signals(universe)
+    if signals_out is not None:
+        signals_out.update(proba)
 
     import pandas as pd
 

@@ -1,6 +1,6 @@
 """Configuration: secrets from the environment and the default ticker universe."""
 
 from stock_ai.config.settings import Settings, load_settings
-from stock_ai.config.universe import DEFAULT_UNIVERSE, PRESETS
+from stock_ai.config.universe import DEFAULT_UNIVERSE, PRESETS, TICKER_SUGGESTIONS
 
-__all__ = ["Settings", "load_settings", "DEFAULT_UNIVERSE", "PRESETS"]
+__all__ = ["Settings", "load_settings", "DEFAULT_UNIVERSE", "PRESETS", "TICKER_SUGGESTIONS"]

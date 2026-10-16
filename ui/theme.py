@@ -6,6 +6,9 @@ the UI references `var(--token)` in CSS or `colors()` for Plotly. No other modul
 hardcodes a color.
 """
 
+import base64
+from pathlib import Path
+
 import streamlit as st
 
 TOKENS = {
@@ -84,7 +87,18 @@ def colors() -> dict:
 
 
 def logo_path() -> str:
-    return f"assets/logo_{current()}.svg"
+    """Always the dark logo file, so the <img> src is identical on every load; light mode
+    swaps the picture with a CSS override (see _logo_css) instead of changing the src."""
+    return "assets/logo_dark.svg"
+
+
+def _logo_css() -> str:
+    """Reserve the logo's box (no layout jump) and, in light mode, paint the light logo."""
+    css = '[data-testid="stHeaderLogo"] { height: 2rem; width: auto; min-width: 112px; }\n'
+    if current() == "light":
+        data = base64.b64encode(Path("assets/logo_light.svg").read_bytes()).decode()
+        css += f'[data-testid="stHeaderLogo"] {{ content: url("data:image/svg+xml;base64,{data}"); }}\n'
+    return css
 
 
 def mark_path() -> str:
@@ -169,7 +183,7 @@ hr {{ border-color: var(--border) !important; }}
 [data-testid="stSidebar"] a p {{ color: var(--text) !important; }}
 @media (max-width: 767px) {{
   .st-key-theme_toggle {{ right: 28px !important; top: 30px !important; }}
-  [data-testid="stLogo"] {{ max-height: 22px !important; }}
+  [data-testid="stHeaderLogo"] {{ max-height: 22px !important; }}
   .tgrid {{ grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important; gap: var(--s1) !important; }}
   .tcard {{ padding: 12px !important; }}
   .tcard .px {{ font-size: 1.05rem !important; }}
@@ -333,6 +347,20 @@ a.tcard:hover .sym {{ color: var(--accent-text); }}
   border-radius: 18px; padding: var(--s3); margin: var(--s1) 0 var(--s2); border: 1px solid var(--border-strong);
   background: var(--surface); box-shadow: var(--shadow); }}
 .signal.up {{ border-color: var(--up); background: linear-gradient(135deg, var(--up-soft), transparent 60%), var(--surface); }}
+.signal.down {{ border-color: var(--down); background: linear-gradient(135deg, var(--down-soft), transparent 60%), var(--surface); }}
+.signal.down .sig-action {{ color: var(--down); }}
+.signal.none {{ border-style: dashed; }}
+.signal.none .sig-action {{ color: var(--text-muted); }}
+.sig-sub {{ color: var(--accent-text); font-size: 0.9rem; margin-top: 2px; }}
+.sig-k b.up {{ color: var(--up); }} .sig-k b.down {{ color: var(--down); }}
+.vbanner {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s1); margin: var(--s2) 0; }}
+.vq {{ display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px var(--s2); border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); border-left: 3px solid var(--border-strong); }}
+.vq.yes {{ border-left-color: var(--up); }} .vq.no {{ border-left-color: var(--down); }}
+.vq .q {{ color: var(--text); font-size: 0.9rem; }} .vq .a {{ font-weight: 700; font-family: var(--font-mono); }}
+.vq.yes .a {{ color: var(--up); }} .vq.no .a {{ color: var(--down); }}
+.vq .d {{ grid-column: 1 / -1; color: var(--text-faint); font-size: 0.78rem; }}
+.sk-page .stats {{ margin: var(--s2) 0; }} .sk-bar.chart-h {{ height: 300px; border-radius: 12px; }}
 .signal.flat {{ background: linear-gradient(135deg, var(--accent-soft), transparent 60%), var(--surface); }}
 .sig-action {{ font-size: 2rem; font-weight: 600; letter-spacing: -0.03em; color: var(--text); }}
 .signal.up .sig-action {{ color: var(--up); }}
@@ -379,6 +407,7 @@ a.tcard:hover .sym {{ color: var(--accent-text); }}
 
 [data-testid="stPlotlyChart"] {{ background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s1); box-shadow: var(--shadow); }}
+{_logo_css()}
 </style>
 """,
         unsafe_allow_html=True,

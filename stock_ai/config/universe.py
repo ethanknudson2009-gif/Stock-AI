@@ -33,3 +33,13 @@ PRESETS: dict[str, list[str]] = {
     "Mega-cap tech": MEGA_CAP_TECH,
     "Large-cap 30": DEFAULT_UNIVERSE,
 }
+
+
+# Common US tickers offered as autocomplete suggestions (any valid symbol is still accepted).
+TICKER_SUGGESTIONS: list[str] = sorted(set(DEFAULT_UNIVERSE + [
+    "SPY", "QQQ", "DIA", "IWM", "VOO", "VTI", "TSLA", "AMD", "INTC", "QCOM", "TXN", "MU", "AMAT", "IBM", "NOW",
+    "INTU", "PYPL", "UBER", "ABNB", "SHOP", "SNOW", "PLTR", "PANW", "CRWD", "SBUX", "NKE", "TGT", "LOW", "TJX",
+    "BKNG", "MDLZ", "PM", "MO", "CL", "KMB", "GS", "MS", "WFC", "C", "AXP", "BLK", "SCHW", "BRK-B", "PFE", "LLY",
+    "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD", "CVS", "MDT", "COP", "SLB", "EOG", "OXY", "BA", "CAT", "DE", "GE",
+    "HON", "LMT", "RTX", "UPS", "UNP", "FDX", "T", "VZ", "TMUS", "CMCSA", "NEE", "DUK", "SO", "AMT", "PLD", "F", "GM",
+]))

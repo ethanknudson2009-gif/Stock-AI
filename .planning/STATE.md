@@ -96,3 +96,9 @@
 ---
 
 *State for Stock-AI v1 milestone. Initialized 2026-10-07.*
+
+## Quick Tasks Completed
+
+| ID | Date | Description | Status |
+|----|------|-------------|--------|
+| 261016-h99 | 2026-10-16 | Honest model harness + honest signal UI, robustness, portfolio/paper-trade, UX | complete |

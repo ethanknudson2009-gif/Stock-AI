@@ -99,19 +99,44 @@ def skeleton_grid(n: int = 8) -> str:
     return f'<div class="tgrid">{cell * n}</div>'
 
 
-def signal_card(action: str, prob: float, threshold: float, applies_to: str, explanation: str) -> None:
-    """Today's model call: Buy or Hold cash, its confidence, and when it applies."""
-    kind = "up" if action == "Buy" else "flat"
+def signal_card(state: str, prob: float, adjusted: float, threshold: float, applies_to: str,
+                explanation: str) -> None:
+    """Today's model call. state ∈ {'buy','sell','none'}; 'none' = the model has no proven edge here.
+
+    `prob` is the raw P(up); `adjusted` is P(up) minus the historical up-frequency — the part
+    of the confidence that is information rather than the stock's usual drift.
+    """
+    label = {"buy": "Buy", "sell": "Sell", "none": "No edge"}[state]
+    sub = ('<div class="sig-sub">The model has not beaten the base rate here, so it issues no call.</div>'
+           if state == "none" else "")
     _html(
-        f'<div class="signal {kind}"><div class="sig-main"><span class="eyebrow">Today\'s signal</span>'
-        f'<div class="sig-action">{escape(action)}</div>'
+        f'<div class="signal {state}"><div class="sig-main"><span class="eyebrow">Today\'s signal</span>'
+        f'<div class="sig-action">{label}</div>{sub}'
         f'<p class="sig-expl">{escape(explanation)}</p></div>'
-        f'<div class="sig-side"><div class="sig-k">Model confidence (P up)</div>'
+        f'<div class="sig-side"><div class="sig-k">Raw P(up)</div>'
         f'<div class="sig-v">{prob:.0%}</div>'
         f'<div class="meter"><span style="width:{prob * 100:.0f}%"></span>'
         f'<i style="left:{threshold * 100:.0f}%"></i></div>'
+        f'<div class="sig-k">Base-rate-adjusted: <b class="{"up" if adjusted > 0 else "down"}">{adjusted:+.1%}</b> '
+        f'vs the stock\'s usual up-frequency</div>'
         f'<div class="sig-k">threshold {threshold:.0%} · applies to {escape(applies_to)}</div></div></div>'
     )
+
+
+def verdict_banner(items: list[tuple[str, bool, str]]) -> None:
+    """Plain-language yes/no checks above the stats. items: [(question, answer, detail)]."""
+    cells = "".join(
+        f'<div class="vq {"yes" if ok else "no"}"><span class="q">{escape(q)}</span>'
+        f'<span class="a">{"Yes" if ok else "No"}</span><span class="d">{escape(d)}</span></div>'
+        for q, ok, d in items)
+    _html(f'<div class="vbanner">{cells}</div>')
+
+
+def skeleton_results() -> str:
+    """Placeholder for a results page while models train (returns markup)."""
+    return ('<div class="sk-page"><div class="sk-bar w60 tall"></div><div class="sk-bar w100 spark-h"></div>'
+            '<div class="stats">' + '<div class="stat"><div class="sk-bar w40"></div>'
+            '<div class="sk-bar w60 tall"></div></div>' * 4 + '</div><div class="sk-bar w100 chart-h"></div></div>')
 
 
 def banner(kind: str, title: str, body: str, icon: str = "") -> None:

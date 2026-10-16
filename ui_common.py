@@ -15,11 +15,14 @@ import yfinance as yf
 from dotenv import load_dotenv
 from plotly.subplots import make_subplots
 
-from stock_ai.config import load_settings
+from stock_ai.backtest.engine import run_backtest
+from stock_ai.config import TICKER_SUGGESTIONS, load_settings
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.execution import FakeBroker
 from stock_ai.features.indicators import add_features
 from stock_ai.models.classifier import build_labels, latest_signal, train_model, walk_forward_predict
+from stock_ai.models.evaluation import block_bootstrap_sharpe, classification_stats, edge_check
+from stock_ai.strategy.baselines import buy_hold_positions, sma_crossover_positions
 from stock_ai.models.rf_backend import RandomForestBackend
 from ui import theme
 
@@ -31,6 +34,7 @@ MAX_START = date(2010, 1, 1)
 WARMUP_DAYS = 420          # extra history fetched so 200-day features exist from `start`
 MARKET_TTL = 300           # market data cache: 5 minutes
 MODEL_TTL = 3600           # trained walk-forward results: 1 hour
+COST_GRID_BPS = (0, 5, 10, 25)
 RANGES = {"1Y": 365, "3Y": 3 * 365, "5Y": 5 * 365, "Max": None}
 _TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
@@ -112,6 +116,37 @@ def walk_forward(ticker: str, start: date, end: date) -> dict:
     proba, acc = walk_forward_predict(df)
     labels = build_labels(df)["label"].reindex(proba.index)
     return {"proba": proba, "accuracy": acc, "labels": labels}
+
+
+def analyze(ticker: str, start: date, end: date, threshold: float, cost_bps: float,
+            view_from: date | None = None) -> dict:
+    """Everything a results page needs for one ticker (heavy parts come from caches).
+
+    The edge check judges the model's whole out-of-sample record; `view_from` only crops
+    the window the return/Sharpe numbers are computed over.
+    """
+    df = load_prices(ticker, start, end)
+    wf = walk_forward(ticker, start, end)
+    proba_all, labels_all = wf["proba"], wf["labels"]
+    edge = edge_check(proba_all, labels_all)
+    first_oos = proba_all.index[0].date()
+    proba = proba_all if view_from is None else proba_all[proba_all.index >= pd.Timestamp(view_from)]
+    if len(proba) < 60:
+        raise ValueError("That 'Results from' date leaves too little data — pick an earlier date.")
+    wf_df = df.loc[proba.index]
+    pos = (proba > threshold).astype(int)
+    sma_pos = sma_crossover_positions(df).reindex(wf_df.index).fillna(0).astype(int)
+    runs = {"Model (walk-forward)": (pos, run_backtest(wf_df, pos, cost_bps=cost_bps)),
+            "Buy & hold": (buy_hold_positions(wf_df), run_backtest(wf_df, buy_hold_positions(wf_df), cost_bps=cost_bps)),
+            "SMA 50/200 crossover": (sma_pos, run_backtest(wf_df, sma_pos, cost_bps=cost_bps))}
+    for name, (_p, r) in runs.items():
+        r["sharpe_ci"] = block_bootstrap_sharpe(r["cumulative_returns"].pct_change().fillna(r["cumulative_returns"].iloc[0] - 1))
+    sens = {bps: run_backtest(wf_df, pos, cost_bps=bps) for bps in COST_GRID_BPS}
+    p_today, d_today = today_signal(ticker, start, end)
+    return {"df": df, "wf_df": wf_df, "proba": proba, "pos": pos, "runs": runs, "sens": sens, "edge": edge,
+            "cls": classification_stats(proba, labels_all, threshold), "first_oos": first_oos,
+            "p_today": p_today, "d_today": d_today, "hist_up": edge["base_rate"],
+            "bh_zero_cost": run_backtest(wf_df, buy_hold_positions(wf_df), cost_bps=0)}
 
 
 @st.cache_data(ttl=MODEL_TTL, show_spinner=False)
@@ -208,7 +243,8 @@ def equity_chart(curves: dict, drawdown_of: str | None = None):
     """Growth-of-$1 lines (autoscaled, dashed 1.0 baseline) + shaded drawdown panel."""
     c = theme.colors()
     styles = [dict(color=c["accent"], width=2), dict(color=c["text-muted"], width=1.5),
-              dict(color=c["text-faint"], width=1.3, dash="dot")]
+              dict(color=c["text-faint"], width=1.3, dash="dot"), dict(color=c["up"], width=1.3),
+              dict(color=c["down"], width=1.3, dash="dash")]
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.05)
     for (name, series), style in zip(curves.items(), styles):
         fig.add_trace(go.Scatter(x=series.index, y=series, mode="lines", name=name, line=style,
@@ -233,3 +269,42 @@ def contribution_chart(contrib: pd.Series):
                            hovertemplate="%{y}: %{x:+.1%}<extra></extra>"))
     fig.update_xaxes(tickformat=".0%")
     return theme.style_fig(fig, height=max(240, 22 * len(s) + 60))
+
+
+def cost_sensitivity_chart(sens: dict, bh_return: float):
+    """Strategy total return at several trading-cost levels vs. buy & hold: how fragile is the edge?"""
+    c = theme.colors()
+    xs = [f"{b} bps" for b in sens]
+    ys = [r["total_return"] for r in sens.values()]
+    sharpes = [r["sharpe_ratio"] for r in sens.values()]
+    fig = go.Figure(go.Bar(
+        x=xs, y=ys, marker_color=[c["up"] if y >= bh_return else c["accent"] for y in ys], customdata=sharpes,
+        text=[f"{y:+.0%}" for y in ys], textposition="outside", name="Strategy",
+        hovertemplate="%{x}<br>return %{y:+.1%}<br>Sharpe %{customdata:.2f}<extra></extra>"))
+    fig.add_hline(y=bh_return, line=dict(color=c["text-muted"], width=1.5, dash="dash"),
+                  annotation_text=f"Buy & hold {bh_return:+.0%}", annotation_position="top left",
+                  annotation_font_color=c["text-muted"])
+    fig.update_yaxes(tickformat=".0%")
+    fig.update_layout(showlegend=False)
+    return theme.style_fig(fig, height=300)
+
+
+@st.cache_data(ttl=MARKET_TTL, show_spinner=False)
+def recent_closes(tickers: tuple[str, ...], start: str) -> dict[str, pd.Series]:
+    """Daily closes since `start` per ticker (to resolve logged signals against what happened)."""
+    out = {}
+    for t in tickers:
+        try:
+            out[t] = _download(t, date.fromisoformat(start), latest_trading_day())["Close"]
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def has_edge(ticker: str) -> bool | None:
+    """Does the model beat the base rate on `ticker` over the full history? None if it can't be judged."""
+    try:
+        wf = walk_forward(ticker, MAX_START, latest_trading_day())
+        return edge_check(wf["proba"], wf["labels"])["has_edge"]
+    except Exception:  # noqa: BLE001
+        return None

@@ -52,6 +52,13 @@ class AlpacaPaperBroker:
         """Return current holdings as {ticker: quantity}."""
         return {p.symbol: float(p.qty) for p in self._client.get_all_positions()}
 
+    def get_position_details(self) -> list[dict]:
+        """Open positions with cost basis and unrealized P&L (read-only)."""
+        return [{"ticker": p.symbol, "qty": float(p.qty), "avg_entry": float(p.avg_entry_price),
+                 "price": float(p.current_price), "value": float(p.market_value),
+                 "pl": float(p.unrealized_pl), "pl_pct": float(p.unrealized_plpc)}
+                for p in self._client.get_all_positions()]
+
     def submit_order(self, order: Order) -> Order:
         """Pre-flight tradability, then submit a market order. Idempotent via client_order_id."""
         asset = self._client.get_asset(order.ticker)
