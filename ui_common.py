@@ -316,3 +316,30 @@ def news_for(symbols: tuple[str, ...], days: int) -> pd.DataFrame:
     from stock_ai.data.news import fetch_news  # noqa: PLC0415
 
     return fetch_news(list(symbols), days=days)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def account_snapshot() -> dict | None:
+    """Everything the My Trades page shows, straight from the Alpaca paper account (None without keys).
+
+    Cached for a minute so reruns are instant; the page's Refresh button clears it.
+    """
+    try:
+        from stock_ai.execution.paper import AlpacaPaperBroker  # noqa: PLC0415
+
+        b = AlpacaPaperBroker()
+        return {"account": b.get_account_summary(), "positions": b.get_position_details(),
+                "orders": b.get_order_history(100), "equity": b.get_equity_history("3M"), "fetched": now_et()}
+    except ValueError:
+        return None  # no keys
+
+
+def equity_history_chart(points: list[tuple]):
+    """Account equity over time (Alpaca portfolio history)."""
+    c = theme.colors()
+    xs = [datetime.fromtimestamp(t, ET) for t, _ in points]
+    ys = [e for _, e in points]
+    fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines+markers", line=dict(color=c["accent"], width=2),
+                               marker=dict(size=5), hovertemplate="%{x|%b %d}<br>$%{y:,.2f}<extra></extra>"))
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    return theme.style_fig(fig, height=300)

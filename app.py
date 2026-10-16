@@ -23,6 +23,7 @@ pages = [
     st.Page("views/single_ticker.py", title="Single Ticker", icon=":material/candlestick_chart:"),
     st.Page("views/portfolio.py", title="Portfolio", icon=":material/donut_large:"),
     st.Page("views/news.py", title="News Radar", icon=":material/newspaper:"),
+    st.Page("views/my_trades.py", title="My Trades", icon=":material/account_balance_wallet:"),
     st.Page("views/paper_trade.py", title="Paper Trade", icon=":material/receipt_long:"),
     st.Page("views/about.py", title="About", icon=":material/info:"),
 ]

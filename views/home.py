@@ -56,9 +56,9 @@ with st.form("ticker_search", clear_on_submit=False):
             st.switch_page("views/single_ticker.py")
 
 # ---- Launchers ----
-section("Analysis suite", "Five tools, one honest engine", eyebrow="The full picture")
+section("Analysis suite", "Six tools, one honest engine", eyebrow="The full picture")
 row1 = st.columns(3, gap="medium")
-row2 = st.columns(2, gap="medium")
+row2 = st.columns(3, gap="medium")
 with row1[0]:
     nav_card("single", "views/single_ticker.py", "candlestick_chart", "Single Ticker",
              "Backtest one stock with candlesticks and honest out-of-sample stats.")
@@ -72,6 +72,9 @@ with row2[0]:
     nav_card("paper", "views/paper_trade.py", "receipt_long", "Paper Trade",
              "Preview today's orders, then confirm — safe by default with DRY_RUN.")
 with row2[1]:
+    nav_card("trades", "views/my_trades.py", "account_balance_wallet", "My Trades",
+             "Your Alpaca paper account mirrored here: orders, positions, P&L and account value.")
+with row2[2]:
     nav_card("about", "views/about.py", "info", "About",
              "How it works, how to read results, and the honest caveats.")
 

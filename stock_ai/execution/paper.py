@@ -59,6 +59,33 @@ class AlpacaPaperBroker:
                  "pl": float(p.unrealized_pl), "pl_pct": float(p.unrealized_plpc)}
                 for p in self._client.get_all_positions()]
 
+    def get_account_summary(self) -> dict:
+        """Equity, cash and today's change (read-only)."""
+        a = self._client.get_account()
+        equity, last = float(a.equity), float(a.last_equity)
+        return {"equity": equity, "cash": float(a.cash), "buying_power": float(a.buying_power),
+                "day_pl": equity - last, "day_pl_pct": (equity / last - 1) if last else 0.0}
+
+    def get_order_history(self, limit: int = 100) -> list[dict]:
+        """Newest-first orders of every status (read-only)."""
+        from alpaca.trading.enums import QueryOrderStatus  # noqa: PLC0415
+        from alpaca.trading.requests import GetOrdersRequest  # noqa: PLC0415
+
+        orders = self._client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit))
+        f = lambda v: float(v) if v is not None else None  # noqa: E731
+        return [{"ticker": o.symbol, "side": getattr(o.side, "value", str(o.side)),
+                 "status": getattr(o.status, "value", str(o.status)), "notional": f(o.notional), "qty": f(o.qty),
+                 "filled_qty": f(o.filled_qty) or 0.0, "avg_price": f(o.filled_avg_price),
+                 "submitted_at": o.submitted_at, "filled_at": o.filled_at, "id": o.client_order_id}
+                for o in orders]
+
+    def get_equity_history(self, period: str = "1M") -> list[tuple]:
+        """[(timestamp, equity)] from Alpaca's portfolio history, skipping days before funding (read-only)."""
+        from alpaca.trading.requests import GetPortfolioHistoryRequest  # noqa: PLC0415
+
+        h = self._client.get_portfolio_history(GetPortfolioHistoryRequest(period=period, timeframe="1D"))
+        return [(t, e) for t, e in zip(h.timestamp, h.equity) if e]
+
     def submit_order(self, order: Order) -> Order:
         """Pre-flight tradability, then submit a market order. Idempotent via client_order_id."""
         asset = self._client.get_asset(order.ticker)

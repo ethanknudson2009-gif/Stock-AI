@@ -7,6 +7,12 @@
   Shows most positive/negative names, a ranking with price move, per-ticker headlines, and a **track record**:
   each day's top-5 positive-news picks are logged and graded 5 trading days later against the base rate.
 - The lexicon is crude (headline words only) and unproven; the track record is how we find out. Not a trade signal.
+- **My Trades** page: the Alpaca paper account mirrored in-app (account value, cash, today's change, positions with P&L,
+  every order with status/fill price, Bot vs Manual source, and the model's P(up) behind each bot order, plus equity history).
+  Read-only; orders are still placed through Paper Trade. First live paper batch: 5 x $500 buys (AVGO, JPM, META, NVDA, PEP).
+- Stress tests (30 tickers): Sharpe vs buy & hold 0.68/0.66/0.64/0.56 at 0/5/10/25 bps; worse in every sub-period
+  (2010-17, 2017-22, 2022-26); higher thresholds hurt; shuffled-label control scored the same Sharpe (0.64) — the model
+  mostly tracks buy & hold, with at best a tiny edge (Brier beat base rate on 12/30 real vs 8/30 shuffled).
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 
