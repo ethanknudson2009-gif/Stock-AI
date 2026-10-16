@@ -44,8 +44,13 @@ def score_text(text: str) -> float:
     return (pos - neg) / (pos + neg) if pos + neg else 0.0
 
 
-def fetch_news(symbols: list[str], days: int = 3, limit: int = 600, now: datetime | None = None) -> pd.DataFrame:
-    """Recent Alpaca news for `symbols` as a frame: time, headline, summary, source, url, symbols, sentiment."""
+def fetch_news(symbols: list[str], days: int = 3, limit: int = 600, now: datetime | None = None,
+               use_llm: bool = False) -> pd.DataFrame:
+    """Recent Alpaca news for `symbols`: id, time, headline, summary, source, url, symbols, sentiment.
+
+    `sentiment` is the word-list score; with use_llm=True it is replaced by Claude's score wherever one
+    exists (cached), keeping the word-list value in `sentiment_lex` and Claude's in `sentiment_llm`.
+    """
     from alpaca.data.historical.news import NewsClient  # noqa: PLC0415
     from alpaca.data.requests import NewsRequest  # noqa: PLC0415
 
@@ -57,10 +62,18 @@ def fetch_news(symbols: list[str], days: int = 3, limit: int = 600, now: datetim
     # alpaca-py pages internally until `limit` articles (50 per request) or the window is exhausted.
     resp = client.get_news(NewsRequest(symbols=",".join(symbols), start=start, limit=limit, sort="desc",
                                        include_content=False))
-    rows = [{"time": pd.Timestamp(a.created_at), "headline": a.headline, "summary": a.summary or "",
+    rows = [{"id": str(a.id), "time": pd.Timestamp(a.created_at), "headline": a.headline, "summary": a.summary or "",
              "source": a.source, "url": a.url, "symbols": list(a.symbols),
              "sentiment": score_text(f"{a.headline}. {a.summary or ''}")} for a in resp.data.get("news", [])]
-    return pd.DataFrame(rows, columns=["time", "headline", "summary", "source", "url", "symbols", "sentiment"])
+    df = pd.DataFrame(rows, columns=["id", "time", "headline", "summary", "source", "url", "symbols", "sentiment"])
+    df["sentiment_lex"] = df["sentiment"]
+    df["sentiment_llm"] = float("nan")
+    if use_llm and len(df):
+        from stock_ai.data.sentiment import score_with_claude  # noqa: PLC0415
+
+        df["sentiment_llm"], df.attrs["llm_stats"] = score_with_claude(df)
+        df["sentiment"] = df["sentiment_llm"].fillna(df["sentiment_lex"])
+    return df
 
 
 def rank_tickers(news: pd.DataFrame, universe: list[str], now: pd.Timestamp | None = None,

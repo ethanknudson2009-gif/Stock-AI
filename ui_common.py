@@ -311,11 +311,11 @@ def has_edge(ticker: str) -> bool | None:
 
 
 @st.cache_data(ttl=MARKET_TTL, show_spinner=False)
-def news_for(symbols: tuple[str, ...], days: int) -> pd.DataFrame:
-    """Cached Alpaca news for a universe (refreshes every 5 minutes)."""
+def news_for(symbols: tuple[str, ...], days: int, use_llm: bool = False) -> pd.DataFrame:
+    """Cached Alpaca news for a universe (refreshes every 5 minutes); Claude scores are cached on disk too."""
     from stock_ai.data.news import fetch_news  # noqa: PLC0415
 
-    return fetch_news(list(symbols), days=days)
+    return fetch_news(list(symbols), days=days, use_llm=use_llm)
 
 
 @st.cache_data(ttl=60, show_spinner=False)

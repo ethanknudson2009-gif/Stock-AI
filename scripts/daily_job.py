@@ -90,7 +90,7 @@ def run(trade: bool, force: bool) -> int:
     _log(f"orders {[(o.ticker, o.side) for o in orders]} -> {result}")
 
     try:
-        ranked = rank_tickers(fetch_news(list(DEFAULT_UNIVERSE), days=3), list(DEFAULT_UNIVERSE))
+        ranked = rank_tickers(fetch_news(list(DEFAULT_UNIVERSE), days=3, use_llm=True), list(DEFAULT_UNIVERSE))
         picks = ranked[ranked["label"] == "Bullish"].head(5)
         n = log_signals({r.ticker: (r.sentiment + 1) / 2 for r in picks.itertuples() if r.ticker in px},
                         {t: px[t] for t in picks["ticker"] if t in px}, bot.trading_day_today(),

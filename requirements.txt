@@ -9,3 +9,4 @@ plotly>=6.6,<7.0
 alpaca-py>=0.43,<0.50
 pytest>=8.0
 pytest-socket>=0.7
+anthropic>=0.40

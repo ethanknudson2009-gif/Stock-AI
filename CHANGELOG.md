@@ -17,6 +17,11 @@
   weekdays after the close it logs the model's signals, rebalances the Alpaca PAPER account to the top-5 (caps + KILL_SWITCH
   apply), logs news picks, and grades old signals/picks. Skips weekends/holidays and runs once per day. Output: `logs/daily_job.log`.
   Disable: `python scripts/install_daily_job.py --uninstall`, or `touch KILL_SWITCH` to halt orders only.
+- **Claude-scored news** (`stock_ai/data/sentiment.py`, model `claude-haiku-5-5`): reads each headline+summary for meaning in
+  batches of 25, caches every score on disk (`logs/sentiment_cache.json`), falls back to the word list on any failure.
+  First run: 335 articles, ~36k tokens (a few cents). Correlation with the word list is only 0.55; where they disagree Claude
+  is more sensible (e.g. word list read a bank's $1.2B charge as +1.0). News Radar has a Claude / Word list toggle; the daily
+  job uses Claude. Whether it predicts anything is still unproven — the track record will say.
 - Home page links to it; guard test now allows `stock_ai/data/news.py` to use the read-only `alpaca.data` client
   (still forbidden from `alpaca.trading`).
 

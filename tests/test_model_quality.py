@@ -165,3 +165,29 @@ def test_news_lexicon_catches_lowered_price_targets():
     from stock_ai.data.news import score_text
 
     assert score_text("Analyst maintains outperform but lowers price target") == 0.0   # mixed, not +1
+
+
+def test_claude_scoring_parses_caches_and_falls_back(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from stock_ai.data import sentiment
+
+    monkeypatch.setattr(sentiment, "CACHE", tmp_path / "cache.json")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    calls = []
+
+    class FakeClient:
+        class messages:  # noqa: N801
+            @staticmethod
+            def create(**kw):
+                calls.append(1)
+                return NS(content=[NS(text='noise {"1": 0.6, "2": -2.0} noise')], usage=NS(input_tokens=10, output_tokens=5))
+
+    news = pd.DataFrame({"id": ["a", "b"], "headline": ["Up", "Down"], "summary": ["", ""], "symbols": [["X"], ["Y"]]})
+    s, st = sentiment.score_with_claude(news, client=FakeClient())
+    assert list(s) == [0.6, -1.0] and st["new"] == 2                   # out-of-range score is clamped
+    s2, st2 = sentiment.score_with_claude(news, client=FakeClient())   # second time: cache, no new API call
+    assert len(calls) == 1 and st2["cached"] == 2 and list(s2) == [0.6, -1.0]
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    s3, _ = sentiment.score_with_claude(news.assign(id=["c", "d"]))    # no key: NaN -> caller falls back to word list
+    assert s3.isna().all()

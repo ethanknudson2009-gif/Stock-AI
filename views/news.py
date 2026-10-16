@@ -8,6 +8,7 @@ import streamlit as st
 from bot import REPO_ROOT, trading_day_today
 from stock_ai.config import PRESETS
 from stock_ai.data.news import rank_tickers, top_headlines
+from stock_ai.data.sentiment import llm_available
 from stock_ai.execution.signal_log import live_accuracy, log_signals, resolve_outcomes
 from ui.components import banner, data_table, note, page_head, section, skeleton_results, stat_grid, tone
 from ui_common import (SETTINGS, fmt_stamp, news_for, now_et, parse_tickers, recent_closes, valid_ticker,
@@ -21,10 +22,13 @@ page_head("News Radar", "Fresh headlines scored for tone, ranked by ticker. A re
           eyebrow="Live news")
 
 with st.container(key="controls_news"):
-    c = st.columns([1.8, 1.2, 0.8], vertical_alignment="bottom")
+    c = st.columns([1.6, 1.0, 1.0, 0.7], vertical_alignment="bottom")
     preset = c[0].segmented_control("Universe", [*PRESETS, "Custom"], default="Large-cap 30", key="nw_preset")
     window = c[1].segmented_control("Lookback", list(LOOKBACKS), default="3 days", key="nw_days")
-    if c[2].button("Refresh", icon=":material/refresh:", width="stretch"):
+    scoring = c[2].segmented_control("Scoring", ["Claude", "Word list"], default="Claude" if llm_available() else "Word list",
+                                     key="nw_scoring", help="Claude reads each headline for meaning (costs a few cents, "
+                                     "cached). The word list just counts positive/negative words.")
+    if c[3].button("Refresh", icon=":material/refresh:", width="stretch"):
         news_for.clear()
         watchlist_quotes.clear()
     if preset == "Custom":
@@ -41,7 +45,7 @@ days = LOOKBACKS.get(window or "3 days", 3)
 holder = st.empty()
 holder.markdown(skeleton_results(), unsafe_allow_html=True)
 try:
-    news = news_for(tuple(universe), days)
+    news = news_for(tuple(universe), days, use_llm=(scoring == "Claude" and llm_available()))
 except Exception as exc:  # noqa: BLE001
     holder.empty()
     st.error(SETTINGS.scrub(f"Could not load news: {type(exc).__name__}: {exc}"))
@@ -56,9 +60,15 @@ quotes, _ = watchlist_quotes(tuple(universe))
 move = {q["ticker"]: q["pct"] for q in quotes}
 last = {q["ticker"]: q["last"] for q in quotes}
 
-banner("info", "How to read this",
-       "Scores come from a simple finance-word lexicon applied to headlines and summaries, weighted by freshness. "
-       "Nothing here is proven to predict prices — the track record at the bottom measures it live.", icon="info")
+stats = news.attrs.get("llm_stats") or {}
+by_claude = int(news["sentiment_llm"].notna().sum()) if "sentiment_llm" in news else 0
+if scoring == "Claude" and by_claude == 0:
+    st.warning("Claude scoring is unavailable right now"
+               + (f" ({stats['error']})" if stats.get("error") else " (no API key)") + " — showing word-list scores.")
+how = (f"Claude read {by_claude} of {len(news)} articles for meaning" if by_claude else
+       "A simple finance-word list scored the headlines") + ", weighted by freshness. Nothing here is proven to " \
+      "predict prices — the track record at the bottom measures it live."
+banner("info", "How to read this", how, icon="info")
 stat_grid([("Articles", f"{len(news):,}", ""), ("Tickers with news", f"{int((ranked['articles'] > 0).sum())}", ""),
            ("Updated", fmt_stamp(now_et()), "accent"), ("Window", window or "3 days", "")])
 
