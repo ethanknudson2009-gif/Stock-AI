@@ -1,13 +1,13 @@
-Walk-forward accuracy: 51.96%  (threshold: 0.50)
+Walk-forward accuracy: 48.34%  (threshold: 0.50)
 
-Out-of-sample (honest, walk-forward) (2022-01-26 → 2023-12-29):
-  Strategy return: 20.78%
-  Buy & hold:      21.87%
-  Sharpe ratio:    0.52
+Out-of-sample (honest, walk-forward) (2022-01-24 → 2023-12-21):
+  Strategy return: 23.87%
+  Buy & hold:      21.24%
+  Sharpe ratio:    0.60
   Trades:          45 @ 10.0 bps
 
-In-sample (training data — overfitting-prone) (2020-10-15 → 2023-05-09):
-  Strategy return: 372.83%
-  Buy & hold:      43.90%
-  Sharpe ratio:    2.63
-  Trades:          109 @ 10.0 bps
+In-sample (training data — overfitting-prone) (2020-10-15 → 2023-05-03):
+  Strategy return: 48.49%
+  Buy & hold:      40.29%
+  Sharpe ratio:    0.69
+  Trades:          31 @ 10.0 bps

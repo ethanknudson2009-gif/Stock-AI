@@ -23,9 +23,9 @@ def test_walk_forward_purges_labels_that_peek_into_the_test_block(monkeypatch):
     seen = []
     real_fit = classifier._fit_model
 
-    def spy(X, y):
+    def spy(X, y, *a, **k):
         seen.append(X.index[-1])
-        return real_fit(X, y)
+        return real_fit(X, y, *a, **k)
 
     monkeypatch.setattr(classifier, "_fit_model", spy)
     proba, _ = classifier.walk_forward_predict(df, n_splits=4)
@@ -93,3 +93,43 @@ def test_portfolio_contributions_and_benchmark_skip_missing():
     # Benchmark day 1 is A's 1% alone, not (1% + 0%) / 2.
     assert abs(r["benchmark_cumulative"].iloc[0] - 1.01) < 1e-12
     assert r["turnover_daily"] >= 0
+
+
+def test_edge_check_flags_a_model_no_better_than_the_base_rate():
+    from stock_ai.models.evaluation import edge_check
+
+    idx = pd.date_range("2020-01-01", periods=400, freq="B")
+    rng = np.random.default_rng(1)
+    labels = pd.Series((rng.random(400) < 0.58).astype(float), index=idx)
+    noise = pd.Series(rng.uniform(0.2, 0.8, 400), index=idx)           # confident but uninformed
+    informed = (labels * 0.7 + (1 - labels) * 0.3).rename("p")         # genuinely predictive
+    assert not edge_check(noise, labels)["has_edge"]
+    assert edge_check(informed, labels)["has_edge"]
+
+
+def test_block_bootstrap_ci_brackets_the_point_estimate():
+    from stock_ai.backtest.engine import _sharpe_ratio
+    from stock_ai.models.evaluation import block_bootstrap_sharpe
+
+    r = pd.Series(np.random.default_rng(2).normal(0.0006, 0.01, 1500))
+    lo, hi = block_bootstrap_sharpe(r)
+    assert lo < _sharpe_ratio(r) < hi
+    assert hi - lo > 0.3  # a Sharpe from a few years of data is genuinely uncertain
+    assert all(np.isnan(block_bootstrap_sharpe(r.iloc[:10])))
+
+
+def test_vol_target_shrinks_positions_when_volatility_is_high():
+    from stock_ai.strategy.sizing import vol_target_positions
+
+    idx = pd.date_range("2024-01-01", periods=3, freq="B")
+    pos = vol_target_positions(pd.Series([1.0, 1.0, 0.0], index=idx), pd.Series([0.005, 0.04, 0.04], index=idx))
+    assert pos.iloc[0] == 1.0 and 0 < pos.iloc[1] < 0.5 and pos.iloc[2] == 0.0
+
+
+def test_excess_labels_compare_against_spy():
+    df = pd.DataFrame({"Close": [100.0, 110, 121, 133, 146, 160, 176, 193],
+                       "spy_close": [100.0, 120, 140, 160, 180, 200, 230, 260]},
+                      index=pd.date_range("2024-01-01", periods=8, freq="B"))
+    assert classifier.build_labels(df, horizon=2, target="excess")["label"].eq(0).all()   # SPY outran it
+    assert classifier.build_labels(df, horizon=2)["label"].eq(1).all()                    # but it still rose
+    assert len(classifier.build_labels(df, horizon=2)) == 6                                 # tail dropped

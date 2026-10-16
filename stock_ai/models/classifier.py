@@ -1,12 +1,17 @@
 """Train a model to predict near-term price direction, with walk-forward evaluation."""
 
+from dataclasses import dataclass
+
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.frozen import FrozenEstimator
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
-FEATURE_COLUMNS = [
+LEGACY_FEATURES = [
     "return_1d",
     "return_5d",
     "return_10d",
@@ -19,6 +24,8 @@ FEATURE_COLUMNS = [
     "trend_regime_200",
     "market_regime",
 ]
+# Current inputs = legacy set + two volatility/drawdown regime features (harness-tested).
+FEATURE_COLUMNS = [*LEGACY_FEATURES, "vol_ratio_20_100", "drawdown_120"]
 
 # Predict direction over this many trading days ahead, not just tomorrow. A
 # multi-day horizon has a better signal-to-noise ratio than next-day direction,
@@ -26,28 +33,54 @@ FEATURE_COLUMNS = [
 LABEL_HORIZON = 5
 
 
-def build_labels(df: pd.DataFrame, horizon: int = LABEL_HORIZON) -> pd.DataFrame:
+@dataclass(frozen=True)
+class ModelSpec:
+    """Which algorithm, inputs and prediction target a walk-forward run uses.
+
+    kind: "rf" | "logreg" | "gbm". target: "direction" (does the stock rise?) or
+    "excess" (does it beat SPY over the horizon? needs the `spy_close` column).
+    """
+
+    kind: str = "logreg"
+    features: tuple = tuple(FEATURE_COLUMNS)
+    target: str = "direction"
+
+
+BASELINE_SPEC = ModelSpec("rf", tuple(LEGACY_FEATURES))  # the original model, kept for comparison
+DEFAULT_SPEC = ModelSpec()  # what the app/bot use; changed only when the harness says so
+
+
+def build_labels(df: pd.DataFrame, horizon: int = LABEL_HORIZON, target: str = "direction") -> pd.DataFrame:
     """Label each row 1 if the close `horizon` days later is higher, else 0.
 
-    The last `horizon` rows have no known future and are dropped, so the label
-    never peeks past the end of the data.
+    With target="excess" the label is 1 when the stock's `horizon`-day return
+    beats SPY's. The last `horizon` rows have no known future and are dropped,
+    so the label never peeks past the end of the data.
     """
     out = df.copy()
-    future_close = out["Close"].shift(-horizon)
-    out["label"] = (future_close > out["Close"]).astype("float")
+    fwd = out["Close"].shift(-horizon) / out["Close"] - 1
+    if target == "excess":
+        fwd = fwd - (out["spy_close"].shift(-horizon) / out["spy_close"] - 1)
+    out["label"] = (fwd > 0).astype("float").where(fwd.notna())
     return out.dropna(subset=["label"])
 
 
 CALIBRATION_FRAC = 0.2  # newest slice of each training window, used only to calibrate
 
 
-def _new_model() -> RandomForestClassifier:
+def _new_model(kind: str = "rf"):
+    if kind == "logreg":  # simple, strongly regularized linear model
+        return make_pipeline(StandardScaler(), LogisticRegression(C=0.02, max_iter=500))
+    if kind == "gbm":  # shallow, slow, heavily regularized boosting
+        return HistGradientBoostingClassifier(
+            max_depth=2, learning_rate=0.03, max_iter=120, l2_regularization=10.0,
+            min_samples_leaf=100, random_state=42)
     return RandomForestClassifier(
         n_estimators=200, max_depth=5, random_state=42, class_weight="balanced", n_jobs=-1
     )
 
 
-def _fit_model(X: pd.DataFrame, y: pd.Series):
+def _fit_model(X: pd.DataFrame, y: pd.Series, kind: str = "rf"):
     """Fit the forest, then calibrate its probabilities on the newest slice.
 
     The calibration slice comes strictly after the fitting slice (time order is
@@ -58,10 +91,10 @@ def _fit_model(X: pd.DataFrame, y: pd.Series):
     fit_end = len(X) - n_cal - LABEL_HORIZON  # purge gap before the calibration slice
     y_cal = y.iloc[-n_cal:] if n_cal else y.iloc[:0]
     if n_cal < 30 or fit_end < 50 or y_cal.nunique() < 2 or y.iloc[:fit_end].nunique() < 2:
-        model = _new_model()
+        model = _new_model(kind)
         model.fit(X, y)
         return model
-    forest = _new_model()
+    forest = _new_model(kind)
     forest.fit(X.iloc[:fit_end], y.iloc[:fit_end])
     calibrated = CalibratedClassifierCV(FrozenEstimator(forest), method="sigmoid")
     calibrated.fit(X.iloc[-n_cal:], y_cal)
@@ -69,15 +102,16 @@ def _fit_model(X: pd.DataFrame, y: pd.Series):
 
 
 def train_model(
-    df: pd.DataFrame,
+    df: pd.DataFrame, spec: ModelSpec | None = None,
 ) -> tuple[RandomForestClassifier, float, pd.DataFrame, pd.DataFrame]:
     """Train on a chronological 80/20 split; return (model, test_accuracy, train_df, test_df).
 
     The split is chronological (shuffle=False) so test_df is strictly after
     train_df — required for honest out-of-sample backtesting.
     """
-    labeled = build_labels(df)
-    X = labeled[FEATURE_COLUMNS]
+    spec = spec or DEFAULT_SPEC
+    labeled = build_labels(df, target=spec.target)
+    X = labeled[list(spec.features)]
     y = labeled["label"]
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -86,7 +120,7 @@ def train_model(
 
     # Purge: the last LABEL_HORIZON training labels are computed from prices inside
     # the test window, so they are left out of fitting (no look-ahead).
-    model = _fit_model(X_train.iloc[:-LABEL_HORIZON], y_train.iloc[:-LABEL_HORIZON])
+    model = _fit_model(X_train.iloc[:-LABEL_HORIZON], y_train.iloc[:-LABEL_HORIZON], spec.kind)
     accuracy = model.score(X_test, y_test)
 
     train_df = labeled.loc[X_train.index]
@@ -95,7 +129,7 @@ def train_model(
 
 
 def walk_forward_predict(
-    df: pd.DataFrame, n_splits: int = 5, min_train_frac: float = 0.4
+    df: pd.DataFrame, n_splits: int = 5, min_train_frac: float = 0.4, spec: ModelSpec | None = None
 ) -> tuple[pd.Series, float]:
     """Expanding-window walk-forward: retrain repeatedly, predict only forward.
 
@@ -109,8 +143,9 @@ def walk_forward_predict(
     LABEL_HORIZON rows before each block, because those rows' labels are
     computed from prices inside the block.
     """
-    labeled = build_labels(df)
-    X = labeled[FEATURE_COLUMNS]
+    spec = spec or DEFAULT_SPEC
+    labeled = build_labels(df, target=spec.target)
+    X = labeled[list(spec.features)]
     y = labeled["label"]
     n = len(labeled)
     if n < 100:
@@ -125,7 +160,7 @@ def walk_forward_predict(
         if lo == hi:
             continue
         train_end = max(0, lo - LABEL_HORIZON)  # purge labels that peek into the block
-        model = _fit_model(X.iloc[:train_end], y.iloc[:train_end])
+        model = _fit_model(X.iloc[:train_end], y.iloc[:train_end], spec.kind)
         block = X.iloc[lo:hi]
         proba = pd.Series(model.predict_proba(block)[:, 1], index=block.index, name="proba_up")
         proba_parts.append(proba)
@@ -138,12 +173,14 @@ def walk_forward_predict(
     return all_proba, accuracy
 
 
-def latest_signal(df: pd.DataFrame) -> tuple[float, pd.Timestamp]:
+def latest_signal(df: pd.DataFrame, spec: ModelSpec | None = None) -> tuple[float, pd.Timestamp]:
     """Train on every labeled row, then score the newest row (which has no label yet).
 
     Returns (P(up over LABEL_HORIZON days), date of the row scored).
     """
-    labeled = build_labels(df)
-    model = _fit_model(labeled[FEATURE_COLUMNS], labeled["label"])
-    latest = df[FEATURE_COLUMNS].iloc[[-1]]
+    spec = spec or DEFAULT_SPEC
+    cols = list(spec.features)
+    labeled = build_labels(df, target=spec.target)
+    model = _fit_model(labeled[cols], labeled["label"], spec.kind)
+    latest = df[cols].iloc[[-1]]
     return float(model.predict_proba(latest)[0, 1]), df.index[-1]

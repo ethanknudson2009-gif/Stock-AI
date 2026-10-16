@@ -44,11 +44,17 @@ def add_features(df: pd.DataFrame, market_close: pd.Series | None = None) -> pd.
     else:
         out["volume_z_20"] = 0.0
 
+    # Volatility regime: is recent vol elevated vs. its own ~5-month norm? Also
+    # how far the stock sits below its 6-month high.
+    out["vol_ratio_20_100"] = out["volatility_20d"] / out["volatility_20d"].rolling(100).mean()
+    out["drawdown_120"] = close / close.rolling(120).max()
+
     # Regimes: the stock's long-term trend, and the broad market's.
     out["trend_regime_200"] = close / close.rolling(200).mean()
     if market_close is not None:
         mkt = market_close.reindex(out.index).ffill()
         out["market_regime"] = mkt / mkt.rolling(200, min_periods=150).mean()
+        out["spy_close"] = mkt  # not a model input; used to build excess-return labels
     else:
         out["market_regime"] = 1.0
 
@@ -61,3 +67,21 @@ def _rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     loss = (-delta.clip(upper=0)).rolling(period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
+
+
+RANK_COLUMNS = ["rank_return_20d", "rank_volatility_20d", "rank_return_5d"]
+
+
+def add_cross_sectional_ranks(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Add each stock's percentile rank (0-1) among its peers each day for 20d/5d momentum and volatility.
+
+    Needs several tickers at once, so it only works where a universe is loaded
+    together (the harness, the Portfolio page) — not on a single-ticker page.
+    """
+    out = {t: df.copy() for t, df in frames.items()}
+    for src, dst in (("return_20d", "rank_return_20d"), ("volatility_20d", "rank_volatility_20d"),
+                     ("return_5d", "rank_return_5d")):
+        ranks = pd.DataFrame({t: df[src] for t, df in frames.items()}).rank(axis=1, pct=True)
+        for t in out:
+            out[t][dst] = ranks[t].reindex(out[t].index).fillna(0.5)
+    return out
