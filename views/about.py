@@ -22,6 +22,19 @@ st.markdown("""
 - **Max drawdown:** the worst peak-to-trough drop — how much pain you'd have felt.
 """)
 
+st.subheader("How results are tested")
+st.markdown("""
+- **Walk-forward:** the model is retrained on an expanding window and only ever predicts days it hasn't seen —
+  the way a real bot would run.
+- **Purge gap:** labels look 5 trading days ahead, so the last 5 rows before each test window are left out of
+  training. Otherwise the model would get a peek at the test period.
+- **Calibration:** the newest slice of each training window tunes the probabilities, so "60%" means roughly 60%.
+- **Baselines:** every result sits next to buy & hold, a 50/200-day moving-average crossover, and (for portfolios)
+  6-month momentum. If the model can't beat those, it isn't adding value.
+- **Features:** multi-horizon returns, trend ratios, volatility, RSI, volume surprise, the stock's 200-day trend,
+  and the market's (SPY) 200-day regime.
+""")
+
 st.subheader("Honest caveats")
 st.markdown("""
 - Predicting stocks is genuinely hard. The model has **no reliable edge** across all stocks — this is an *educational* tool, not a money machine.

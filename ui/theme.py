@@ -87,6 +87,10 @@ def logo_path() -> str:
     return f"assets/logo_{current()}.svg"
 
 
+def mark_path() -> str:
+    return f"assets/mark_{current()}.svg"
+
+
 def style_fig(fig, yaxis_title: str | None = None, height: int = 380):
     """Make a Plotly figure follow the active theme."""
     c = colors()
@@ -188,6 +192,23 @@ input, textarea {{ color: var(--text) !important; -webkit-text-fill-color: var(-
 [data-baseweb="popover"] li {{ color: var(--text) !important; }}
 [data-testid="stSliderThumbValue"], [data-testid="stSliderTickBarMin"],
 [data-testid="stSliderTickBarMax"] {{ color: var(--text-muted) !important; font-family: var(--font-mono) !important; }}
+[data-testid="stDateInputField"] {{ background: var(--surface-2) !important; border-color: var(--border) !important;
+  border-radius: 10px !important; }}
+[data-testid="stDateInputField"] * {{ color: var(--text) !important; -webkit-text-fill-color: var(--text) !important; }}
+[data-testid="stButtonGroup"] button {{ background: var(--surface-2) !important; color: var(--text-muted) !important;
+  border-color: var(--border) !important; }}
+[data-testid="stButtonGroup"] button p {{ color: inherit !important; }}
+[data-testid="stButtonGroup"] button[data-testid*="Active"] {{ background: var(--accent-soft) !important;
+  color: var(--accent-text) !important; border-color: var(--accent-border) !important; }}
+.stDownloadButton > button {{ background: var(--surface) !important; color: var(--text) !important;
+  border: 1px solid var(--border-strong) !important; border-radius: 999px !important; font-weight: 600; }}
+.stDownloadButton > button p, .stDownloadButton > button span {{ color: var(--text) !important; }}
+.stDownloadButton > button:hover {{ border-color: var(--accent) !important; }}
+.stButton > button:disabled {{ opacity: 0.38; cursor: not-allowed; transform: none !important; box-shadow: none !important; }}
+.section-title > .eyebrow {{ flex-basis: 100%; margin-bottom: -10px; }}
+[class*="st-key-controls_"] {{ background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: var(--s3); box-shadow: var(--shadow); }}
+[class*="st-key-preset_"] {{ background: var(--surface) !important; border-radius: 16px !important; }}
 [data-testid="stForm"] {{ background: var(--surface); border: 1px solid var(--border) !important;
   border-radius: 16px; padding: var(--s3) !important; box-shadow: var(--shadow); }}
 
@@ -296,6 +317,65 @@ input, textarea {{ color: var(--text) !important; -webkit-text-fill-color: var(-
 [data-testid="stVerticalBlock"] > div:has(> .st-key-app_footer) {{ order: 9999; }}
 .footer {{ border-top: 1px solid var(--border); padding-top: var(--s2); color: var(--text-faint) !important;
   font-size: 0.78rem; text-align: center; }}
+
+/* Clickable ticker cards + loading skeleton */
+a.tcard {{ display: block; text-decoration: none !important; color: inherit; }}
+a.tcard:hover .sym {{ color: var(--accent-text); }}
+.sk-bar {{ display: block; height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border-strong) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%; animation: sk 1.2s ease-in-out infinite; }}
+.sk-bar.w25 {{ width: 25%; }} .sk-bar.w40 {{ width: 40%; }} .sk-bar.w60 {{ width: 60%; }} .sk-bar.w100 {{ width: 100%; }}
+.sk-bar.tall {{ height: 22px; margin: 14px 0 12px; }} .sk-bar.spark-h {{ height: 40px; }}
+@keyframes sk {{ 0% {{ background-position: 200% 0; }} 100% {{ background-position: -200% 0; }} }}
+
+/* Today's signal */
+.signal {{ display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--s3); align-items: center;
+  border-radius: 18px; padding: var(--s3); margin: var(--s1) 0 var(--s2); border: 1px solid var(--border-strong);
+  background: var(--surface); box-shadow: var(--shadow); }}
+.signal.up {{ border-color: var(--up); background: linear-gradient(135deg, var(--up-soft), transparent 60%), var(--surface); }}
+.signal.flat {{ background: linear-gradient(135deg, var(--accent-soft), transparent 60%), var(--surface); }}
+.sig-action {{ font-size: 2rem; font-weight: 600; letter-spacing: -0.03em; color: var(--text); }}
+.signal.up .sig-action {{ color: var(--up); }}
+.sig-expl {{ color: var(--text-muted) !important; margin: 4px 0 0 !important; }}
+.sig-k {{ color: var(--text-faint); font-size: 0.78rem; }}
+.sig-v {{ font-family: var(--font-mono); font-size: 1.8rem; color: var(--text); margin: 2px 0 8px; }}
+.meter {{ position: relative; height: 8px; border-radius: 99px; background: var(--surface-2);
+  border: 1px solid var(--border); margin-bottom: 8px; }}
+.meter span {{ position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--accent); }}
+.meter i {{ position: absolute; top: -4px; width: 2px; height: 14px; background: var(--text); }}
+@media (max-width: 640px) {{ .signal {{ grid-template-columns: 1fr; }} }}
+
+/* Banners (DRY_RUN) */
+.banner {{ display: flex; gap: 12px; align-items: flex-start; padding: 14px var(--s2); border-radius: 14px;
+  border: 1px solid; margin: var(--s1) 0 var(--s2); }}
+.banner b {{ display: block; font-size: 0.95rem; margin-bottom: 2px; }}
+.banner span:not(.ms) {{ color: var(--text-muted); font-size: 0.88rem; }}
+.banner .ms {{ font-family: 'Material Symbols Rounded'; font-size: 22px; line-height: 1.1; }}
+.banner.warn {{ border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }}
+.banner.warn b, .banner.warn .ms {{ color: var(--warn); }}
+.banner.danger {{ border-color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }}
+.banner.danger b, .banner.danger .ms {{ color: var(--down); }}
+.banner.info {{ border-color: var(--border-strong); background: var(--surface); }}
+.note {{ display: flex; gap: 8px; align-items: center; color: var(--text-faint); font-size: 0.82rem; margin: 6px 0; }}
+.note .ms {{ font-family: 'Material Symbols Rounded'; font-size: 16px; }}
+
+/* Tables */
+.dtable-wrap {{ overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }}
+.dtable {{ width: 100%; border-collapse: collapse; font-size: 0.88rem; }}
+.dtable th {{ text-align: left; color: var(--text-muted); font-weight: 500; padding: 10px 14px;
+  border-bottom: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }}
+.dtable td {{ padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text);
+  font-family: var(--font-mono); white-space: nowrap; }}
+.dtable td:first-child {{ font-family: var(--font-ui); font-weight: 500; }}
+.dtable tr:last-child td {{ border-bottom: none; }}
+.dtable tr.hl td {{ background: var(--accent-soft); }}
+.dtable td.up {{ color: var(--up); }} .dtable td.down {{ color: var(--down); }}
+.cm {{ border-collapse: separate; border-spacing: 6px; font-size: 0.85rem; }}
+.cm th {{ color: var(--text-muted); font-weight: 500; padding: 4px 8px; text-align: left; }}
+.cm td {{ min-width: 110px; padding: 10px 12px; border-radius: 10px; font-family: var(--font-mono);
+  font-size: 1.15rem; color: var(--text); border: 1px solid var(--border); }}
+.cm td small {{ display: block; font-family: var(--font-ui); font-size: 0.72rem; color: var(--text-faint); }}
+.cm td.good {{ background: var(--up-soft); }} .cm td.bad {{ background: var(--down-soft); }}
 
 [data-testid="stPlotlyChart"] {{ background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s1); box-shadow: var(--shadow); }}

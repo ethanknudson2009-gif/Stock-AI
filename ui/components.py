@@ -72,21 +72,83 @@ def _sparkline(values: list[float], kind: str, uid: str) -> str:
     )
 
 
-def ticker_grid(quotes: list[dict]) -> None:
-    """Responsive grid of ticker cards (symbol, price, % pill, sparkline)."""
+def ticker_grid(quotes: list[dict], theme_name: str = "dark") -> None:
+    """Responsive grid of ticker cards; each card opens Single Ticker with it preloaded."""
     if not quotes:
-        st.info("Market data is unavailable right now — try again in a moment.")
+        st.info("Market data is unavailable right now — try Refresh in a moment.")
         return
     cards = []
     for i, q in enumerate(quotes):
         kind = "up" if q["pct"] >= 0 else "down"
         sign = "+" if q["pct"] >= 0 else "−"
+        sym = escape(q["ticker"])
         cards.append(
-            f'<div class="tcard"><div class="row"><span class="sym">{escape(q["ticker"])}</span>'
+            f'<a class="tcard" href="/single_ticker?ticker={sym}&theme={theme_name}" target="_self" '
+            f'title="Analyze {sym}"><div class="row"><span class="sym">{sym}</span>'
             f'<span class="pill {kind}">{sign}{abs(q["pct"]):.2f}%</span></div>'
-            f'<div class="px">${q["last"]:,.2f}</div>{_sparkline(q["spark"], kind, f"sp{i}")}</div>'
+            f'<div class="px">${q["last"]:,.2f}</div>{_sparkline(q["spark"], kind, f"sp{i}")}</a>'
         )
     _html(f'<div class="tgrid">{"".join(cards)}</div>')
+
+
+def skeleton_grid(n: int = 8) -> str:
+    """Shimmering placeholder cards shown while market data loads (returns markup)."""
+    cell = ('<div class="tcard sk"><div class="row"><span class="sk-bar w40"></span>'
+            '<span class="sk-bar w25"></span></div><div class="sk-bar w60 tall"></div>'
+            '<div class="sk-bar w100 spark-h"></div></div>')
+    return f'<div class="tgrid">{cell * n}</div>'
+
+
+def signal_card(action: str, prob: float, threshold: float, applies_to: str, explanation: str) -> None:
+    """Today's model call: Buy or Hold cash, its confidence, and when it applies."""
+    kind = "up" if action == "Buy" else "flat"
+    _html(
+        f'<div class="signal {kind}"><div class="sig-main"><span class="eyebrow">Today\'s signal</span>'
+        f'<div class="sig-action">{escape(action)}</div>'
+        f'<p class="sig-expl">{escape(explanation)}</p></div>'
+        f'<div class="sig-side"><div class="sig-k">Model confidence (P up)</div>'
+        f'<div class="sig-v">{prob:.0%}</div>'
+        f'<div class="meter"><span style="width:{prob * 100:.0f}%"></span>'
+        f'<i style="left:{threshold * 100:.0f}%"></i></div>'
+        f'<div class="sig-k">threshold {threshold:.0%} · applies to {escape(applies_to)}</div></div></div>'
+    )
+
+
+def banner(kind: str, title: str, body: str, icon: str = "") -> None:
+    """Prominent status banner. kind ∈ {'warn','danger','info'}."""
+    ic = f'<span class="ms">{escape(icon)}</span>' if icon else ""
+    _html(f'<div class="banner {kind}">{ic}<div><b>{escape(title)}</b><span>{escape(body)}</span></div></div>')
+
+
+def note(text: str) -> None:
+    """Small always-visible caveat line (e.g. survivorship bias)."""
+    _html(f'<div class="note"><span class="ms">info</span>{escape(text)}</div>')
+
+
+def data_table(headers: list[str], rows: list[list[str]], highlight: int | None = 0,
+               tones: list[list[str]] | None = None) -> None:
+    """Clean HTML table; `highlight` row index gets the accent treatment."""
+    head = "".join(f"<th>{escape(h)}</th>" for h in headers)
+    body = []
+    for r, row in enumerate(rows):
+        cls = ' class="hl"' if r == highlight else ""
+        cells = "".join(
+            f'<td class="{(tones[r][c] if tones else "")}">{escape(v)}</td>' for c, v in enumerate(row))
+        body.append(f"<tr{cls}>{cells}</tr>")
+    _html(f'<div class="dtable-wrap"><table class="dtable"><thead><tr>{head}</tr></thead>'
+          f'<tbody>{"".join(body)}</tbody></table></div>')
+
+
+def confusion_matrix(conf: dict) -> None:
+    """2×2 confusion matrix of predicted vs actual direction."""
+    tp, fp, fn, tn = conf["tp"], conf["fp"], conf["fn"], conf["tn"]
+    _html(
+        '<table class="cm"><tr><th></th><th>Actually up</th><th>Actually down</th></tr>'
+        f'<tr><th>Predicted up</th><td class="good">{tp}<small>correct</small></td>'
+        f'<td class="bad">{fp}<small>false alarm</small></td></tr>'
+        f'<tr><th>Predicted down</th><td class="bad">{fn}<small>missed</small></td>'
+        f'<td class="good">{tn}<small>correct</small></td></tr></table>'
+    )
 
 
 def nav_card(key: str, page: str, icon: str, title: str, desc: str) -> None:

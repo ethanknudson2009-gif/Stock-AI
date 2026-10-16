@@ -41,16 +41,22 @@ def main():
                 ctx = browser.new_context(viewport={"width": vp[0], "height": vp[1]}, device_scale_factor=1)
                 page = ctx.new_page()
                 for name, path in PAGES.items():
-                    if size == "mobile" and name not in ("home", "single_ticker"):
+                    if size == "mobile" and name not in ("home", "single_ticker", "paper_trade"):
                         continue
                     page.goto(f"{BASE}/{path}?theme={theme}")
                     settle(page, ".hero" if name == "home" else ".page-head")
                     shoot(page, str(OUT / f"{name}_{theme}_{size}.png"))
-                    if name == "single_ticker" and size == "desktop":
+                    if name in ("single_ticker", "portfolio") and size == "desktop":
                         page.get_by_role("button", name="Run backtest").click()
-                        page.wait_for_selector('[data-testid="stPlotlyChart"]', timeout=180000)
-                        page.wait_for_timeout(3500)
-                        shoot(page, str(OUT / f"single_ticker_results_{theme}_{size}.png"))
+                        page.wait_for_selector('[data-testid="stPlotlyChart"]', timeout=600000)
+                        settle(page, '[data-testid="stPlotlyChart"]')
+                        page.wait_for_timeout(2500)
+                        shoot(page, str(OUT / f"{name}_results_{theme}_{size}.png"))
+                    if name == "paper_trade" and size == "desktop":
+                        page.get_by_role("button", name="Preview orders").click()
+                        page.wait_for_selector(".dtable", timeout=600000)
+                        settle(page, ".dtable")
+                        shoot(page, str(OUT / f"paper_trade_preview_{theme}_{size}.png"))
                     if name == "home" and size == "mobile":
                         ctl = page.locator('[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] button').first
                         if ctl.count():
