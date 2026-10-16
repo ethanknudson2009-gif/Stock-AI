@@ -1,7 +1,9 @@
 """Train a model to predict near-term price direction, with walk-forward evaluation."""
 
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.frozen import FrozenEstimator
 from sklearn.model_selection import train_test_split
 
 FEATURE_COLUMNS = [
@@ -13,6 +15,9 @@ FEATURE_COLUMNS = [
     "sma10_to_sma50",
     "volatility_20d",
     "rsi_14",
+    "volume_z_20",
+    "trend_regime_200",
+    "market_regime",
 ]
 
 # Predict direction over this many trading days ahead, not just tomorrow. A
@@ -33,10 +38,34 @@ def build_labels(df: pd.DataFrame, horizon: int = LABEL_HORIZON) -> pd.DataFrame
     return out.dropna(subset=["label"])
 
 
+CALIBRATION_FRAC = 0.2  # newest slice of each training window, used only to calibrate
+
+
 def _new_model() -> RandomForestClassifier:
     return RandomForestClassifier(
-        n_estimators=200, max_depth=5, random_state=42, class_weight="balanced"
+        n_estimators=200, max_depth=5, random_state=42, class_weight="balanced", n_jobs=-1
     )
+
+
+def _fit_model(X: pd.DataFrame, y: pd.Series):
+    """Fit the forest, then calibrate its probabilities on the newest slice.
+
+    The calibration slice comes strictly after the fitting slice (time order is
+    kept), so calibration never sees the future of the data it is applied to.
+    Falls back to the raw forest when the slice is too small or one-class.
+    """
+    n_cal = int(len(X) * CALIBRATION_FRAC)
+    fit_end = len(X) - n_cal - LABEL_HORIZON  # purge gap before the calibration slice
+    y_cal = y.iloc[-n_cal:] if n_cal else y.iloc[:0]
+    if n_cal < 30 or fit_end < 50 or y_cal.nunique() < 2 or y.iloc[:fit_end].nunique() < 2:
+        model = _new_model()
+        model.fit(X, y)
+        return model
+    forest = _new_model()
+    forest.fit(X.iloc[:fit_end], y.iloc[:fit_end])
+    calibrated = CalibratedClassifierCV(FrozenEstimator(forest), method="sigmoid")
+    calibrated.fit(X.iloc[-n_cal:], y_cal)
+    return calibrated
 
 
 def train_model(
@@ -55,8 +84,9 @@ def train_model(
         X, y, test_size=0.2, shuffle=False
     )
 
-    model = _new_model()
-    model.fit(X_train, y_train)
+    # Purge: the last LABEL_HORIZON training labels are computed from prices inside
+    # the test window, so they are left out of fitting (no look-ahead).
+    model = _fit_model(X_train.iloc[:-LABEL_HORIZON], y_train.iloc[:-LABEL_HORIZON])
     accuracy = model.score(X_test, y_test)
 
     train_df = labeled.loc[X_train.index]
@@ -75,7 +105,9 @@ def walk_forward_predict(
     periodically would behave. Returns (proba_up over all tested rows, accuracy).
 
     This is a more honest performance estimate than a single 80/20 split, which
-    only ever tests the one most-recent market regime.
+    only ever tests the one most-recent market regime. Training stops
+    LABEL_HORIZON rows before each block, because those rows' labels are
+    computed from prices inside the block.
     """
     labeled = build_labels(df)
     X = labeled[FEATURE_COLUMNS]
@@ -92,8 +124,8 @@ def walk_forward_predict(
         lo, hi = bounds[i], bounds[i + 1]
         if lo == hi:
             continue
-        model = _new_model()
-        model.fit(X.iloc[:lo], y.iloc[:lo])
+        train_end = max(0, lo - LABEL_HORIZON)  # purge labels that peek into the block
+        model = _fit_model(X.iloc[:train_end], y.iloc[:train_end])
         block = X.iloc[lo:hi]
         proba = pd.Series(model.predict_proba(block)[:, 1], index=block.index, name="proba_up")
         proba_parts.append(proba)
@@ -104,3 +136,14 @@ def walk_forward_predict(
     all_proba = pd.concat(proba_parts)
     accuracy = correct / total if total else 0.0
     return all_proba, accuracy
+
+
+def latest_signal(df: pd.DataFrame) -> tuple[float, pd.Timestamp]:
+    """Train on every labeled row, then score the newest row (which has no label yet).
+
+    Returns (P(up over LABEL_HORIZON days), date of the row scored).
+    """
+    labeled = build_labels(df)
+    model = _fit_model(labeled[FEATURE_COLUMNS], labeled["label"])
+    latest = df[FEATURE_COLUMNS].iloc[[-1]]
+    return float(model.predict_proba(latest)[0, 1]), df.index[-1]

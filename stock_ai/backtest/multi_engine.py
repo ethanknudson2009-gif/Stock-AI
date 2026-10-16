@@ -52,13 +52,16 @@ def run_multi_backtest(
     `returns` and `weights` are date×ticker frames on the same calendar.
     Weights are shifted one day (enter the session after the signal) to avoid
     lookahead. Portfolio daily return = sum_ticker(weight_{t-1} * return_t),
-    minus turnover cost. Benchmark = equal-weight-all, daily rebalanced.
+    minus turnover cost. Benchmark = equal-weight of the tickers that have data
+    that day, daily rebalanced.
     """
+    raw_returns = returns
     weights = weights.reindex_like(returns).fillna(0.0)
     returns = returns.fillna(0.0)
 
     held = weights.shift(1).fillna(0.0)
-    gross = (held * returns).sum(axis=1)
+    contrib = held * returns
+    gross = contrib.sum(axis=1)
 
     turnover = held.diff().abs().sum(axis=1)
     turnover.iloc[0] = held.iloc[0].abs().sum()
@@ -67,65 +70,75 @@ def run_multi_backtest(
     portfolio = gross - costs
     cumulative = (1 + portfolio).cumprod()
 
-    benchmark = returns.mean(axis=1)
+    # Average over tickers that actually have a return that day (a missing
+    # ticker is not a 0% day for the benchmark).
+    benchmark = raw_returns.mean(axis=1, skipna=True).fillna(0.0)
     benchmark_cumulative = (1 + benchmark).cumprod()
 
     return {
         "total_return": float(cumulative.iloc[-1] - 1),
         "buy_hold_return": float(benchmark_cumulative.iloc[-1] - 1),
         "portfolio_sharpe": _sharpe_ratio(portfolio),
+        "benchmark_sharpe": _sharpe_ratio(benchmark),
         "max_drawdown": _max_drawdown(cumulative),
         "n_days": int(len(portfolio)),
         "avg_positions": float((held > 0).sum(axis=1).mean()),
+        "turnover_daily": float(turnover.mean()),
         "cost_bps": cost_bps,
         "cumulative_returns": cumulative,
+        "benchmark_cumulative": benchmark_cumulative,
         "portfolio_returns": portfolio,
+        "contributions": contrib.sum(axis=0).sort_values(ascending=False),
+        "weights": weights,
     }
+
+
+def combine_signals(
+    proba_by_ticker: dict[str, pd.Series],
+    returns_by_ticker: dict[str, pd.Series],
+    top_n_count: int,
+    cost_bps: float = 10.0,
+):
+    """Align per-ticker OOS probabilities/returns, rank top-N each day, backtest.
+
+    Returns (results_dict, proba_matrix, returns_matrix).
+    """
+    from stock_ai.strategy.ranker import top_n
+
+    if not proba_by_ticker:
+        raise ValueError("No tickers produced a usable backtest leg")
+    calendar = canonical_calendar({t: s.to_frame() for t, s in proba_by_ticker.items()})
+    proba_matrix = align_series(proba_by_ticker, calendar, max_ffill_gap=0)
+    returns_matrix = align_series(returns_by_ticker, calendar, max_ffill_gap=0)
+    weights = top_n(proba_matrix, top_n_count)
+    results = run_multi_backtest(returns_matrix, weights, cost_bps=cost_bps)
+    return results, proba_matrix, returns_matrix
 
 
 def backtest_universe(
     frames: dict[str, pd.DataFrame],
-    backend_factory,
     top_n_count: int,
     cost_bps: float = 10.0,
+    progress=None,
 ):
-    """Train one SignalBackend per ticker, then run a top-N cross-sectional backtest.
+    """Walk-forward each ticker's model, then run a top-N cross-sectional backtest.
 
     `frames` maps ticker -> featured price DataFrame (output of add_features).
-    `backend_factory()` returns a fresh, unfitted SignalBackend each call.
-    Each ticker is trained on its own chronological split; signals and returns
-    come from the held-out test slice only (honest OOS). Returns
-    (results_dict, proba_matrix, returns_matrix). Tickers whose training fails
-    (too little data) are skipped.
+    Every signal is out-of-sample (expanding-window retraining). `progress`, if
+    given, is called as progress(i, n, ticker) after each ticker. Tickers with
+    too little data are skipped. Returns (results_dict, proba_matrix, returns_matrix).
     """
-    from stock_ai.models.classifier import train_model
-    from stock_ai.strategy.ranker import top_n
-    from stock_ai.strategy.signal import FEATURE_COLUMNS
+    from stock_ai.models.classifier import walk_forward_predict
 
     proba_by_ticker: dict[str, pd.Series] = {}
     returns_by_ticker: dict[str, pd.Series] = {}
-
-    for ticker, df in frames.items():
+    for i, (ticker, df) in enumerate(frames.items(), start=1):
         try:
-            model, _accuracy, _train_df, test_df = train_model(df)
+            proba, _acc = walk_forward_predict(df)
+            proba_by_ticker[ticker] = proba
+            returns_by_ticker[ticker] = df.loc[proba.index, "return_1d"]
         except (ValueError, IndexError):
-            continue
-        if test_df.empty:
-            continue
-        backend = backend_factory()
-        backend._model = model  # reuse the just-fitted model without retraining
-        proba_by_ticker[ticker] = backend.predict_proba_up(test_df[FEATURE_COLUMNS])
-        returns_by_ticker[ticker] = test_df["return_1d"]
-
-    if not proba_by_ticker:
-        raise ValueError("No tickers produced a usable backtest leg")
-
-    calendar = canonical_calendar(
-        {t: s.to_frame() for t, s in proba_by_ticker.items()}
-    )
-    proba_matrix = align_series(proba_by_ticker, calendar, max_ffill_gap=0)
-    returns_matrix = align_series(returns_by_ticker, calendar, max_ffill_gap=0)
-
-    weights = top_n(proba_matrix, top_n_count)
-    results = run_multi_backtest(returns_matrix, weights, cost_bps=cost_bps)
-    return results, proba_matrix, returns_matrix
+            pass
+        if progress:
+            progress(i, len(frames), ticker)
+    return combine_signals(proba_by_ticker, returns_by_ticker, top_n_count, cost_bps)

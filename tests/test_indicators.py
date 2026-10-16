@@ -5,7 +5,7 @@ from stock_ai.models.classifier import FEATURE_COLUMNS
 
 
 def test_add_features_adds_expected_columns():
-    df = pd.DataFrame({"Close": [float(i) for i in range(1, 101)]})
+    df = pd.DataFrame({"Close": [float(i) for i in range(1, 301)]})
     result = add_features(df)
 
     for col in FEATURE_COLUMNS:
@@ -19,8 +19,8 @@ def test_features_are_stationary_not_raw_price():
     Double the price series: a ratio feature is unchanged, a raw-price feature
     would double. This guards the regime-transfer fix.
     """
-    base = pd.DataFrame({"Close": [100 + i for i in range(120)]}, dtype=float)
-    scaled = pd.DataFrame({"Close": [2 * (100 + i) for i in range(120)]}, dtype=float)
+    base = pd.DataFrame({"Close": [100 + i for i in range(320)]}, dtype=float)
+    scaled = pd.DataFrame({"Close": [2 * (100 + i) for i in range(320)]}, dtype=float)
 
     a = add_features(base).iloc[-1]
     b = add_features(scaled).iloc[-1]

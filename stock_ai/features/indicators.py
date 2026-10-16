@@ -10,8 +10,12 @@ across price regimes.
 import pandas as pd
 
 
-def add_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add stationary momentum, trend-ratio, volatility, and RSI features."""
+def add_features(df: pd.DataFrame, market_close: pd.Series | None = None) -> pd.DataFrame:
+    """Add stationary momentum, trend, volatility, volume, RSI and regime features.
+
+    `market_close` (e.g. SPY closes) enables the market-regime feature; without
+    it the feature is a neutral constant 1.0, which a tree model simply ignores.
+    """
     out = df.copy()
     close = out["Close"]
 
@@ -31,6 +35,22 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     # Volatility regime and a bounded oscillator.
     out["volatility_20d"] = out["return_1d"].rolling(20).std()
     out["rsi_14"] = _rsi(close, period=14)
+
+    # Volume surprise: today's volume vs. its recent norm (0 when volume is missing).
+    if "Volume" in out.columns:
+        vol = out["Volume"].astype(float)
+        std = vol.rolling(20).std().replace(0, float("nan"))
+        out["volume_z_20"] = ((vol - vol.rolling(20).mean()) / std).fillna(0.0)
+    else:
+        out["volume_z_20"] = 0.0
+
+    # Regimes: the stock's long-term trend, and the broad market's.
+    out["trend_regime_200"] = close / close.rolling(200).mean()
+    if market_close is not None:
+        mkt = market_close.reindex(out.index).ffill()
+        out["market_regime"] = mkt / mkt.rolling(200, min_periods=150).mean()
+    else:
+        out["market_regime"] = 1.0
 
     return out.dropna()
 

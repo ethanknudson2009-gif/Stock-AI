@@ -22,3 +22,14 @@ DEFAULT_UNIVERSE: list[str] = [
     # Energy
     "XOM", "CVX",
 ]
+
+
+MEGA_CAP_TECH: list[str] = ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "AVGO", "ORCL", "ADBE", "CRM"]
+
+# Named universes offered in the UI. "Large-cap 30" is DEFAULT_UNIVERSE — a
+# hand-picked current snapshot of big US names, not the official S&P 500 top 30
+# by index weight.
+PRESETS: dict[str, list[str]] = {
+    "Mega-cap tech": MEGA_CAP_TECH,
+    "Large-cap 30": DEFAULT_UNIVERSE,
+}
