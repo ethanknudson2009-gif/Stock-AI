@@ -40,10 +40,17 @@ def should_run(now: datetime, last_done: str | None, force: bool = False) -> tup
 
 def _closes(ticker: str, **kw):
     """Daily closes as a Series (yfinance may return a one-column frame)."""
+    import time
+
     import yfinance as yf
 
-    s = yf.download(ticker, progress=False, auto_adjust=True, **kw)["Close"]
-    return (s.iloc[:, 0] if s.ndim == 2 else s).dropna()
+    for attempt in range(4):  # Yahoo sometimes returns an empty frame; retry before giving up
+        s = yf.download(ticker, progress=False, auto_adjust=True, **kw)["Close"]
+        s = (s.iloc[:, 0] if s.ndim == 2 else s).dropna()
+        if len(s):
+            return s
+        time.sleep(5 * (attempt + 1))
+    return s
 
 
 def _notify(title: str, msg: str) -> None:
@@ -85,6 +92,9 @@ def run(trade: bool, force: bool) -> int:
         return 0
 
     spy = _closes("SPY", period="5d")
+    if not len(spy):
+        _log("no SPY data from Yahoo; will retry on the next scheduled run")
+        return 1
     if not force and spy.index[-1].date() != now.date():
         _log("skip: market did not trade today (holiday?)")
         return 0
@@ -99,7 +109,14 @@ def run(trade: bool, force: bool) -> int:
     if notes:
         _notify("Stock AI: risk rule applied", " ".join(notes))
     bot.enforce_caps(orders)
-    px = {t: float(_closes(t, period="5d").iloc[-1]) for t in sigs}
+    px = {}
+    for t in sigs:
+        c = _closes(t, period="5d")
+        if len(c):
+            px[t] = float(c.iloc[-1])
+        else:
+            _log(f"no price for {t}; leaving it out of the signal log")
+    sigs = {t: v for t, v in sigs.items() if t in px}
     added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)
     _log(f"signals logged: {added} new of {len(sigs)}")
 
