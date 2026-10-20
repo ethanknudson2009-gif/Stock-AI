@@ -38,8 +38,11 @@ st.markdown("""
 - **The model:** a heavily regularized logistic regression (we compared it against a random forest, gradient
   boosting, other feature sets, an excess-return target, volatility sizing and rank features across 30 stocks;
   none beat buy & hold, so we kept the simplest and fastest).
-- **Minimum-edge rule:** if the model's out-of-sample Brier score isn't better than just quoting the stock's
-  historical up-frequency, the app says **"No edge"** instead of Buy or Sell.
+- **Minimum-edge rule:** the benchmark is "always quote the stock's up-frequency from its training years". If the
+  model's out-of-sample Brier score doesn't beat that *with statistical confidence* (a 20-day block bootstrap, 95%
+  one-sided), the app says **"No edge"** instead of Buy or Sell. A tiny win that could be luck doesn't count.
+- **Fills:** the backtest assumes you trade at the close that produced the signal. The live bot orders after the
+  close and gets the next open, so real results will differ.
 - **Robustness:** Sharpe ratios come with a 95% block-bootstrap range, and a cost-sensitivity chart shows how
   fragile the result is as trading costs rise.
 - **Features:** multi-horizon returns, trend ratios, volatility (and its regime), RSI, volume surprise, drawdown, the stock's 200-day
@@ -57,12 +60,20 @@ st.markdown("""
 
 st.subheader("Safety")
 st.markdown("""
-- **DRY_RUN** is on by default in the app and CLI — orders are logged, never sent. The scheduled daily job is
-  the one place that submits **paper** orders (fake money, Alpaca's sandbox; the adapter refuses any non-paper endpoint).
+- **DRY_RUN** is the master switch for every path (app, CLI and the daily job). While it is on, orders are logged and
+  never sent; set `DRY_RUN=false` in `.env` to let the bot place **paper** orders (fake money, Alpaca's sandbox; the
+  adapter refuses any non-paper endpoint).
 - A **KILL_SWITCH** file halts all order submission instantly.
-- **Hard caps** limit dollars per order ($500) and orders per day (20).
-- **Risk rules:** at most 2 holdings per sector, a 10% per-position stop-loss, and no new buys if the account is
-  down 3% on the day. The bot only manages its own 30-stock universe and never touches your manual holdings.
+- **Sizing:** the bot aims to have about 75% of account equity invested, split across the names it buys, with no
+  position above 20% of equity. It uses the cash it really has, never Alpaca's margin "buying power".
+- **Hard caps** limit dollars per buy order ($25,000) and orders per day (20, counted across the whole day).
+- **Risk rules:** at most 2 holdings per sector, a 10% per-position stop-loss (no re-buy for 7 days), and no new buys
+  if the account is down 3% on the day. These are checked once a day, after the close, not during the session.
+  The bot only manages its own 30-stock universe and never touches your manual holdings.
+- **The bot only buys names with a reliable edge** (see the rule above), uses the same model the app evaluates,
+  and refuses to trade at all if too many tickers can't be scored. A ticker with missing data is held, never sold blind.
+- **Login:** the app listens only on this computer; anyone arriving through the tunnel or the local network must enter
+  the password, and repeated wrong guesses lock everyone out for five minutes.
 """)
 
 with st.expander("Glossary"):

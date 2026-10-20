@@ -54,15 +54,20 @@ g1, g2 = st.columns([1, 1.25], gap="large")
 with g1:
     section("Your bot", "Alpaca paper account", eyebrow="At a glance")
     snap = account_snapshot()
-    if snap is None:
+    if snap and "error" in snap:
+        st.warning("Couldn't reach Alpaca just now: " + snap["error"])
+    elif snap is None:
         st.info("Connect Alpaca keys in .env to see your paper account here.")
     else:
         a, pos, od = snap["account"], snap["positions"], snap["orders"]
         waiting = sum(1 for o in od if o["status"] in ("accepted", "new", "pending_new", "held", "partially_filled"))
         try:
-            last_run = json.loads(STATE.read_text()).get("last_done", "not yet")
+            state = json.loads(STATE.read_text())
         except (OSError, ValueError):
-            last_run = "not yet"
+            state = {}
+        last_run = state.get("last_done", "not yet")
+        if state.get("last_dry", "") > state.get("last_done", ""):
+            last_run += f" (dry run {state['last_dry']})"
         stat_grid([("Account value", f"${a['equity']:,.0f}", "accent"),
                    (f"Today ({a['day_pl_pct']:+.2%})", f"{a['day_pl']:+,.2f}", tone(a["day_pl"])),
                    ("Positions", f"{len(pos)}", ""), ("Orders waiting", f"{waiting}", ""),

@@ -59,7 +59,7 @@ companies that failed or were delisted are missing.
 ## Run it
 
 ```bash
-streamlit run app.py                         # the app at http://localhost:8501
+streamlit run app.py                         # the app at http://localhost:8501 (listens on this computer only)
 PYTHONPATH=. python scripts/run_harness.py   # model-vs-baseline harness over 30 tickers (needs data/cache/raw.pkl)
 python scripts/install_daily_job.py          # schedule the after-close paper-trading job (macOS launchd)
 python scripts/install_daily_job.py --uninstall

@@ -13,7 +13,7 @@ from stock_ai.models.evaluation import classification_stats
 from stock_ai.strategy.baselines import momentum_weights
 from ui.components import data_table, note, page_head, section, stat_grid, tone, verdict
 from ui_common import (RANGES, SETTINGS, contribution_chart, equity_chart, latest_trading_day,
-                       parse_tickers, range_start, valid_ticker, walk_forward)
+                       parse_tickers, persist, range_start, valid_ticker, walk_forward)
 
 COST_HELP = ("What you pay every time you buy or sell, in basis points. 1 bp = 0.01%, so 10 bps "
              "means 0.10% of each trade lost to commissions and slippage.")
@@ -21,6 +21,7 @@ TOPN_HELP = "How many of the highest-ranked stocks to hold each day, split equal
 
 ss = st.session_state
 END = latest_trading_day()
+persist("pf_preset", "pf_range", "pf_start", "pf_end", "pf_custom", "pf_topn", "pf_cost")
 ss.setdefault("pf_preset", ss.pop("preload_preset", None) or "Mega-cap tech")
 ss.setdefault("pf_range", "Max")
 ss.setdefault("pf_end", END)
@@ -28,6 +29,7 @@ ss.setdefault("pf_start", range_start("Max", END))
 ss.setdefault("pf_custom", "AAPL, MSFT, NVDA, JPM, XOM, KO")
 if "preload_preset" in ss:
     ss["pf_preset"] = ss.pop("preload_preset")
+persist("pf_preset", "pf_range", "pf_start", "pf_end", "pf_custom", "pf_topn", "pf_cost")   # save what Home preloaded
 
 
 def _apply_range():
@@ -101,7 +103,12 @@ try:
 except ValueError:
     st.error("None of these tickers had enough history in this range. Try a longer range.")
     st.stop()
-mom = run_multi_backtest(returns_m, momentum_weights(returns_m, n=top_n), cost_bps=cost_bps)
+# 6-month momentum needs 126 days of past returns, so rank on each stock's FULL history and then trade over the
+# same window as the model (otherwise it would sit in cash for its first half-year).
+from ui_common import load_prices as _load  # noqa: PLC0415
+full_returns = pd.DataFrame({t: _load(t, start, end)["return_1d"] for t in proba_by}).reindex(returns_m.columns, axis=1)
+mom_w = momentum_weights(full_returns, n=top_n).reindex(returns_m.index).fillna(0.0)
+mom = run_multi_backtest(returns_m, mom_w, cost_bps=cost_bps)
 try:  # SPY as a second benchmark, on the portfolio's own calendar
     from ui_common import load_prices as _lp  # noqa: PLC0415
     spy_ret = _lp("SPY", start, end)["return_1d"].reindex(proba_m.index).fillna(0.0)
@@ -134,7 +141,8 @@ st.caption(f"Turnover = share of the portfolio traded per day (~{res['turnover_d
            f"Each trade costs {cost_bps:.0f} bps. Pooled prediction accuracy {pooled['accuracy']:.1%} vs "
            f"{pooled['base_rate']:.1%} base rate.")
 
-section("Does the model add value?", "same universe, window and costs")
+section("Does the model add value?", "same universe and window · the model and momentum pay trading costs, "
+        "the equal-weight and SPY lines are free")
 rows, tones = [], []
 for name, r, sharpe in (("Model top-N", res, res["portfolio_sharpe"]),
                         ("Equal-weight all", {**res, "total_return": res["buy_hold_return"],
@@ -159,14 +167,15 @@ st.plotly_chart(equity_chart(curves), width="stretch", theme=None)
 
 h1, h2 = st.columns([1, 1.3], gap="medium")
 with h1:
-    section("Current holdings", f"as of {proba_m.index[-1]:%b %d, %Y}")
+    section("Latest backtest holdings", f"as of {proba_m.index[-1]:%b %d, %Y}")
     latest_w = res["weights"].iloc[-1]
     latest_p = proba_m.iloc[-1]
     held = latest_w[latest_w > 0].index
     data_table(["Ticker", "Weight", "Score (P up)"],
                [[t, f"{latest_w[t]:.0%}", f"{latest_p[t]:.0%}"] for t in sorted(held, key=lambda x: -latest_p[x])],
                highlight=None)
-    st.caption("Next session's target holdings: the top-N by model score.")
+    st.caption("Holdings on the last day the backtest could grade. The final 5 trading days can't be graded yet, "
+               "so this is not today's call — see Paper Trade for what the bot would hold now.")
 with h2:
     section("Contribution by ticker", "summed daily contribution to return")
     st.plotly_chart(contribution_chart(res["contributions"]), width="stretch", theme=None)

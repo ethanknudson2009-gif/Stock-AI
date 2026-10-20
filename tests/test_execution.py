@@ -197,3 +197,25 @@ def test_stopped_out_ticker_is_not_rebought_during_cooldown(monkeypatch, tmp_pat
     later = _plan(monkeypatch, FakeBroker(dry_run=False), proba, edge, list(proba), cooldown_file=cd,
                   trading_day=date(2026, 11, 5))
     assert "AAA" in {o.ticker for o in later}
+
+
+def test_positions_are_sized_from_equity_without_margin_and_stay_near_target(monkeypatch, tmp_path):
+    import bot
+    from stock_ai.execution import FakeBroker
+
+    class Acct(FakeBroker):
+        def get_account(self):
+            return {"cash": 60_000.0, "equity": 100_000.0}
+
+        def get_position_details(self):
+            return [{"ticker": "AAA", "qty": 1, "avg_entry": 500, "price": 500.0, "value": 500.0, "pl": 0, "pl_pct": 0.0}]
+
+    proba = {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7}
+    broker = Acct(dry_run=False)
+    broker.submit_order(bot.Order("AAA", "buy", "x"))                  # a tiny leftover $500 position
+    orders = _plan(monkeypatch, broker, proba, dict.fromkeys(proba, True), list(proba), top_n=3, cooldown_file=tmp_path / "c.json")
+    buys = {o.ticker: o.notional for o in orders if o.side == "buy"}
+    assert set(buys) == {"AAA", "BBB", "CCC"}                          # AAA is topped up, BBB/CCC are new
+    assert all(v <= 20_000.0 + 0.01 for v in buys.values())            # <= 20% of equity each
+    assert sum(buys.values()) <= 60_000.0 * bot.CASH_BUFFER + 0.01     # never more than real cash
+    assert buys["BBB"] == buys["CCC"]

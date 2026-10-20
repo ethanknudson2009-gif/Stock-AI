@@ -12,7 +12,7 @@ from stock_ai.strategy.signal import generate_signals
 from ui.components import (confusion_matrix, data_table, note, page_head, section, signal_card, skeleton_results,
                            stat_grid, tone, verdict_banner)
 from ui_common import (COST_GRID_BPS, RANGES, SETTINGS, analyze, cost_sensitivity_chart, equity_chart, in_sample,
-                       latest_trading_day, parse_tickers, price_chart, range_start, valid_ticker)
+                       latest_trading_day, parse_tickers, persist, price_chart, range_start, valid_ticker)
 
 COST_HELP = ("What you pay every time you buy or sell, in basis points. 1 bp = 0.01%, so 10 bps "
              "means 0.10% of each trade lost to commissions and slippage.")
@@ -24,6 +24,7 @@ MAX_COMPARE = 4
 
 ss = st.session_state
 END = latest_trading_day()
+persist("st_ticker", "st_compare", "st_range", "st_start", "st_end", "st_cost", "st_thr", "st_mode")
 
 # Preload a ticker from Home (search box or a clicked card), once per arrival.
 pre = ss.pop("preload_ticker", None) or st.query_params.get("ticker")
@@ -38,6 +39,7 @@ ss.setdefault("st_compare", ["AAPL", "MSFT"])
 ss.setdefault("st_range", "Max")
 ss.setdefault("st_end", END)
 ss.setdefault("st_start", range_start("Max", END))
+persist("st_ticker", "st_compare", "st_range", "st_start", "st_end", "st_cost", "st_thr", "st_mode")   # save what a Home click preloaded
 
 
 def _apply_range():
@@ -179,8 +181,8 @@ p_today, adj = a["p_today"], a["p_today"] - a["hist_up"]
 nxt = a["d_today"] + pd.tseries.offsets.BDay(1)
 if not edge["has_edge"]:
     state = "none"
-    expl = (f"No edge: the model has not beaten the base rate on {ticker}. Its out-of-sample Brier score "
-            f"({edge['brier']:.3f}) is no better than just saying 'up' {edge['base_rate']:.0%} of the time "
+    expl = (f"No edge: the model has not reliably beaten the base rate on {ticker}. Its out-of-sample Brier score "
+            f"({edge['brier']:.3f}) is not clearly better than just saying 'up' {edge['base_rate']:.0%} of the time "
             f"({edge['base_brier']:.3f}), so its {p_today:.0%} reading is not trustworthy enough to act on.")
 else:
     state = "buy" if p_today > threshold else "sell"
@@ -192,6 +194,12 @@ signal_card(state, p_today, adj, threshold, f"{nxt:%a %b %d}", expl)
 
 # ---- Out-of-sample window (explicit) ----
 section(f"{ticker} · walk-forward out-of-sample", f"{wf_df.index[0]:%b %d, %Y} → {wf_df.index[-1]:%b %d, %Y}")
+if a["df"].attrs.get("market_regime_missing"):
+    st.warning("SPY data didn't load, so the market-regime input is flat for this run. Results are still valid but "
+               "slightly different from normal; try again in a few minutes.")
+if wf_df.index[-1] < a["df"].index[-1]:
+    st.caption(f"Results end {wf_df.index[-1]:%b %d, %Y}, not {a['df'].index[-1]:%b %d}: the last {LABEL_HORIZON} trading "
+               f"days can't be graded yet because each prediction is judged on the {LABEL_HORIZON} days after it.")
 v1, v2 = st.columns([1.2, 2.8], vertical_alignment="center")
 v1.date_input("Results from", key="st_view", min_value=first_oos, max_value=(wf_df.index[-1] - timedelta(days=120)).date(),
               help="Defaults to the first out-of-sample date: the first day the model predicted without having "
@@ -209,13 +217,14 @@ verdict_banner([
      f"Brier {edge['brier']:.3f} vs {edge['base_brier']:.3f} for the base rate"),
 ])
 note("Hypothetical backtest. This stock exists today, so its past looks better than a random pick from back then "
-     "would have (survivorship bias). Not financial advice.")
+     "would have (survivorship bias). It also assumes you trade at the same close that produced the signal; the live "
+     "bot places orders after the close and they fill at the next open. Not financial advice.")
 stat_grid([
     ("Strategy return", f"{model['total_return']:+.1%}", tone(model["total_return"])),
     ("Buy & hold", f"{bh['total_return']:+.1%}", ""),
     ("Sharpe", f"{model['sharpe_ratio']:.2f}", tone(model["sharpe_ratio"])),
     ("Max drawdown", f"{model['max_drawdown']:.1%}", "down"),
-    ("Trades", f"{model['n_trades']}", ""),
+    ("Buys + sells", f"{model['n_trades']}", ""),
 ])
 
 section("Does the model add value?", "same window, same costs · Sharpe shown with a 95% bootstrap range")
@@ -224,7 +233,7 @@ for name, (p, r) in a["runs"].items():
     rows.append([name, f"{r['total_return']:+.1%}", _ci(r), f"{r['max_drawdown']:.1%}", str(r["n_trades"]),
                  f"{p.mean():.0%}"])
     tones.append(["", tone(r["total_return"]), "", "down", "", ""])
-data_table(["Strategy", "Return", "Sharpe [95% CI]", "Max drawdown", "Trades", "Time in market"], rows, 0, tones)
+data_table(["Strategy", "Return", "Sharpe [95% CI]", "Max drawdown", "Buys + sells", "Time in market"], rows, 0, tones)
 st.caption(CI_HELP)
 
 # ---- Charts ----
@@ -239,9 +248,10 @@ st.plotly_chart(equity_chart({"Strategy": model["cumulative_returns"], "Buy & ho
                               "SMA 50/200": sma["cumulative_returns"]}), width="stretch", theme=None)
 
 section("Net of costs", f"strategy return at {', '.join(str(b) for b in COST_GRID_BPS)} bps per trade")
-st.plotly_chart(cost_sensitivity_chart(a["sens"], a["bh_zero_cost"]["total_return"]), width="stretch", theme=None)
+st.plotly_chart(cost_sensitivity_chart(a["sens"], bh["total_return"]), width="stretch", theme=None)
 st.caption("If the bars fall below the dashed buy & hold line as costs rise, the edge is fragile. "
-           f"Costs are charged on {model['n_trades']} trades here.")
+           f"Costs are charged on {model['n_trades']} buys and sells here. The buy & hold line pays the same {cost_bps:.0f} bps "
+           "entry cost as the stats above.")
 
 # ---- Diagnostics ----
 section("Prediction quality", f"{cls['n']:,} out-of-sample days at threshold {threshold:.2f}")

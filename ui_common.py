@@ -5,7 +5,7 @@ from ui/theme.py.
 """
 
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -20,7 +20,8 @@ from stock_ai.config import TICKER_SUGGESTIONS, load_settings
 from stock_ai.data.loader import fetch_price_history
 from stock_ai.execution import FakeBroker
 from stock_ai.features.indicators import add_features
-from stock_ai.models.classifier import build_labels, latest_signal, train_model, walk_forward_predict
+from stock_ai.models.classifier import (build_labels, latest_signal, train_model, training_prior,
+                                        walk_forward_predict)
 from stock_ai.models.evaluation import block_bootstrap_sharpe, classification_stats, edge_check
 from stock_ai.strategy.baselines import buy_hold_positions, sma_crossover_positions
 from stock_ai.models.rf_backend import RandomForestBackend
@@ -46,11 +47,12 @@ def now_et() -> datetime:
 
 
 def latest_trading_day(now: datetime | None = None) -> date:
-    """Most recent weekday whose session has opened (US/Eastern). Holidays aren't
-    modeled; on a holiday the data simply ends at the previous session."""
+    """Most recent weekday whose daily bar is final (US/Eastern): today only after 4:15 PM, so a half-finished
+    session is never mistaken for a close. Holidays aren't modeled; on a holiday the data simply ends at the
+    previous session."""
     n = now or now_et()
     d = n.date()
-    if n.weekday() >= 5 or n.time() < time(9, 30):
+    if n.weekday() >= 5 or n.time() < time(16, 15):
         d -= timedelta(days=1)
     while d.weekday() >= 5:
         d -= timedelta(days=1)
@@ -65,6 +67,29 @@ def range_start(label: str, end: date) -> date:
 def fmt_stamp(dt: datetime) -> str:
     """'10:24 AM EDT'."""
     return dt.strftime("%-I:%M %p %Z")
+
+
+def persist(*keys: str) -> None:
+    """Keep widget values when you leave a page and come back.
+
+    Streamlit forgets a widget's value as soon as a run doesn't draw it (e.g. you visit another page), but plain
+    session keys such as the last backtest run survive -- which left old results on screen under reset controls.
+    Call at the top of a page, before its widgets: restores saved values, then saves the current ones.
+    """
+    ss = st.session_state
+    for k in keys:
+        if k in ss:
+            ss[f"_keep_{k}"] = ss[k]
+        elif f"_keep_{k}" in ss:
+            ss[k] = ss[f"_keep_{k}"]
+
+
+def order_signal_day(order_id: str | None, accepted: datetime, is_bot: bool) -> str:
+    """The date a bot order's signal was logged under: the date inside its client_order_id.
+
+    Alpaca stamps an after-hours order with the next session's time, so the accepted date can be days later.
+    """
+    return order_id[:10] if is_bot and order_id else accepted.strftime("%Y-%m-%d")
 
 
 def valid_ticker(t: str) -> bool:
@@ -102,8 +127,10 @@ def market_close(start: date, end: date) -> pd.Series | None:
 def load_prices(ticker: str, start: date, end: date) -> pd.DataFrame:
     """Featured daily history from `start` to `end` (warm-up fetched, then trimmed)."""
     warm = start - timedelta(days=WARMUP_DAYS)
-    feats = add_features(_download(ticker, warm, end), market_close=market_close(warm, end))
+    mkt = market_close(warm, end)
+    feats = add_features(_download(ticker, warm, end), market_close=mkt)
     feats = feats.loc[feats.index >= pd.Timestamp(start)]
+    feats.attrs["market_regime_missing"] = mkt is None   # SPY failed to load: the regime input is a flat constant
     if len(feats) < 120:
         raise ValueError(f"Not enough history for {ticker} in this range — try a longer range.")
     return feats
@@ -115,7 +142,7 @@ def walk_forward(ticker: str, start: date, end: date) -> dict:
     df = load_prices(ticker, start, end)
     proba, acc = walk_forward_predict(df)
     labels = build_labels(df)["label"].reindex(proba.index)
-    return {"proba": proba, "accuracy": acc, "labels": labels}
+    return {"proba": proba, "accuracy": acc, "labels": labels, "prior": training_prior(df, proba.index[0])}
 
 
 def analyze(ticker: str, start: date, end: date, threshold: float, cost_bps: float,
@@ -128,14 +155,16 @@ def analyze(ticker: str, start: date, end: date, threshold: float, cost_bps: flo
     df = load_prices(ticker, start, end)
     wf = walk_forward(ticker, start, end)
     proba_all, labels_all = wf["proba"], wf["labels"]
-    edge = edge_check(proba_all, labels_all)
+    edge = edge_check(proba_all, labels_all, prior=wf["prior"])
     first_oos = proba_all.index[0].date()
     proba = proba_all if view_from is None else proba_all[proba_all.index >= pd.Timestamp(view_from)]
     if len(proba) < 60:
         raise ValueError("That 'Results from' date leaves too little data — pick an earlier date.")
     wf_df = df.loc[proba.index]
     pos = (proba > threshold).astype(int)
-    sma_pos = sma_crossover_positions(df).reindex(wf_df.index).fillna(0).astype(int)
+    # the 50/200 averages need 200 days of history before the window starts, so use the warm-up data too
+    long_close = _download(ticker, start - timedelta(days=WARMUP_DAYS), end)[["Close"]]
+    sma_pos = sma_crossover_positions(long_close).reindex(wf_df.index).fillna(0).astype(int)
     runs = {"Model (walk-forward)": (pos, run_backtest(wf_df, pos, cost_bps=cost_bps)),
             "Buy & hold": (buy_hold_positions(wf_df), run_backtest(wf_df, buy_hold_positions(wf_df), cost_bps=cost_bps)),
             "SMA 50/200 crossover": (sma_pos, run_backtest(wf_df, sma_pos, cost_bps=cost_bps))}
@@ -154,7 +183,7 @@ def today_signal(ticker: str, start: date, end: date) -> tuple[float, pd.Timesta
     return latest_signal(load_prices(ticker, start, end))
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(ttl=MODEL_TTL, show_spinner=False)
 def in_sample(ticker: str, start: date, end: date):
     """(backend, train_df) from a single split — used only for the in-sample contrast."""
     model, _acc, train_df, _test = train_model(load_prices(ticker, start, end))
@@ -236,6 +265,7 @@ def price_chart(df, positions, proba=None, show_signals=True):
                 marker=dict(symbol=sym, size=7, color=color, line=dict(width=0)),
                 hovertemplate=f"<b>{kind}</b> · %{{x|%b %d, %Y}}<br>$%{{y:,.2f}}<br>P(up) %{{customdata:.0%}}<extra></extra>"))
     fig.update_layout(xaxis_rangeslider_visible=False)
+    fig.update_xaxes(range=[df.index[0], df.index[-1]])
     return theme.style_fig(fig, height=400)
 
 
@@ -305,7 +335,7 @@ def has_edge(ticker: str) -> bool | None:
     """Does the model beat the base rate on `ticker` over the full history? None if it can't be judged."""
     try:
         wf = walk_forward(ticker, MAX_START, latest_trading_day())
-        return edge_check(wf["proba"], wf["labels"])["has_edge"]
+        return edge_check(wf["proba"], wf["labels"], prior=wf["prior"])["has_edge"]
     except Exception:  # noqa: BLE001
         return None
 
@@ -332,16 +362,26 @@ def account_snapshot() -> dict | None:
                 "orders": b.get_order_history(100), "equity": b.get_equity_history("3M"), "fetched": now_et()}
     except ValueError:
         return None  # no keys
+    except Exception as exc:  # noqa: BLE001 — Alpaca/network trouble must show a message, not a stack trace
+        return {"error": SETTINGS.scrub(f"{type(exc).__name__}: {str(exc)[:160]}"), "fetched": now_et()}
 
 
-def equity_history_chart(points: list[tuple]):
-    """Account equity over time (Alpaca portfolio history)."""
+def equity_history_chart(points: list[tuple], live_equity: float | None = None):
+    """Account equity over time (Alpaca portfolio history), plus today's live value as the last point.
+
+    Alpaca stamps each day at midnight UTC, so dates are read in UTC (converting to Eastern would show the
+    previous evening). Weekend stamps are dropped; they just repeat Friday.
+    """
     c = theme.colors()
-    xs = [datetime.fromtimestamp(t, ET) for t, _ in points]
-    ys = [e for _, e in points]
+    pts = [(datetime.fromtimestamp(t, timezone.utc).date(), e) for t, e in points]
+    pts = [(d, e) for d, e in pts if d.weekday() < 5]
+    xs, ys = [d for d, _ in pts], [e for _, e in pts]
+    if live_equity is not None:
+        xs.append(now_et()), ys.append(live_equity)
     fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines+markers", line=dict(color=c["accent"], width=2),
-                               marker=dict(size=5), hovertemplate="%{x|%b %d}<br>$%{y:,.2f}<extra></extra>"))
+                               marker=dict(size=5), hovertemplate="%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>"))
     fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_xaxes(tickformat="%b %d")
     return theme.style_fig(fig, height=300)
 
 

@@ -28,7 +28,11 @@ ORDER_LOG = REPO_ROOT / "logs" / "orders.csv"
 SIGNAL_LOG = REPO_ROOT / "logs" / "signals.csv"
 COOLDOWN_FILE = REPO_ROOT / "logs" / "stopped_out.json"
 
-MAX_ORDER_USD = 500.0      # hard per-order dollar cap (BL-02)
+MAX_ORDER_USD = 25_000.0   # hard per-order dollar cap (BL-02)
+TARGET_INVESTED = 0.75    # aim to have this share of account EQUITY in positions (real cash only, never margin)
+MAX_POSITION_PCT = 0.20    # no single position above this share of equity
+REBALANCE_BAND = 0.30      # top up / trim a held position only when it drifts this far from its target size
+CASH_BUFFER = 0.95         # buys together may use at most this share of available cash
 MAX_ORDERS_PER_DAY = 20    # hard daily order-count cap (BL-03)
 MAX_PER_SECTOR = 2         # at most this many holdings from one sector
 STOP_LOSS_PCT = 0.10       # sell a position that is down this much from cost
@@ -40,6 +44,11 @@ MIN_SIGNAL_COVERAGE = 0.8  # refuse to trade if fewer than this share of the uni
 def dry_run_enabled() -> bool:
     """DRY_RUN is ON unless explicitly set to a falsey string. Safe by default (BL-05)."""
     return os.getenv("DRY_RUN", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def require_edge_enabled() -> bool:
+    """BOT_REQUIRE_EDGE (default true): only buy names where the model reliably beats the base rate."""
+    return os.getenv("BOT_REQUIRE_EDGE", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def kill_switch_active(path: Path = KILL_SWITCH) -> bool:
@@ -91,12 +100,12 @@ def plan_orders(
     broker,
     universe: list[str] | None = None,
     top_n_count: int = 5,
-    order_usd: float = MAX_ORDER_USD,
+    order_usd: float | None = None,
     trading_day: date | None = None,
     signals_out: dict | None = None,
     risk_out: list | None = None,
     stopped_out: list | None = None,
-    require_edge: bool = True,
+    require_edge: bool | None = None,
 ) -> list[Order]:
     """Compute today's intended orders (no submission). Used by the Preview step.
 
@@ -125,12 +134,16 @@ def plan_orders(
             stopped_out.extend(stopped)
     cooling = load_cooldown(day)
     ranked = [t for t in sorted(proba, key=proba.get, reverse=True) if t not in stopped and t not in cooling]
+    require_edge = require_edge_enabled() if require_edge is None else require_edge
+    no_edge = [t for t in ranked if not edge.get(t)]
     if require_edge:
-        no_edge = [t for t in ranked if not edge.get(t)]
         ranked = [t for t in ranked if edge.get(t)]
         if no_edge:
             notes.append(f"No reliable edge on {len(no_edge)} of {len(proba)} tickers — the bot only buys names where "
                          "the model beats the base rate with statistical confidence.")
+    elif no_edge:
+        notes.append(f"{len(no_edge)} of {len(proba)} tickers have no reliable edge; trading them anyway because "
+                     "BOT_REQUIRE_EDGE=false. Treat results as a test of the machinery, not proof of skill.")
     target = apply_sector_cap(ranked, top_n_count, MAX_PER_SECTOR, SECTORS)
     plain = apply_sector_cap(ranked, top_n_count, None, SECTORS)
     if target != plain:
@@ -143,13 +156,44 @@ def plan_orders(
         notes.append(f"No data today for {', '.join(unscored)} — holding them rather than selling blind.")
     orders = [o for o in diff(current, target, day, max_positions=top_n_count)
               if not (o.side == "sell" and o.ticker in unscored)]
-    # Size buys in dollars; sells close the existing share quantity.
+    # Size each position from the account's own equity (cash it really has -- never Alpaca's margin "buying power"),
+    # or from a fixed dollar amount when `order_usd` is given.
+    acct = broker.get_account() if hasattr(broker, "get_account") else {}
+    equity, cash = float(acct.get("equity") or 0), float(acct.get("cash") or 0)
+    if order_usd is not None:
+        per_position = order_usd
+    elif equity > 0 and target:
+        per_position = min(equity * TARGET_INVESTED / len(target), equity * MAX_POSITION_PCT, MAX_ORDER_USD)
+    else:
+        per_position = 0.0
+    values = {d["ticker"]: d["value"] for d in details if "value" in d}
     sized = []
     for o in orders:
         if o.side == "buy":
-            sized.append(Order(o.ticker, "buy", o.client_order_id, notional=order_usd))
+            sized.append(Order(o.ticker, "buy", o.client_order_id, notional=round(per_position, 2)))
         else:
             sized.append(Order(o.ticker, "sell", o.client_order_id, qty=current.get(o.ticker)))
+    if order_usd is None and per_position > 0:
+        # Keep held positions near their target size: top up the ones that shrank, trim the ones that grew.
+        prices = {d["ticker"]: d["price"] for d in details if "price" in d}
+        for t in target:
+            v = values.get(t)
+            if v is None or t not in current or prices.get(t, 0) <= 0:
+                continue
+            if v < per_position * (1 - REBALANCE_BAND):
+                sized.append(Order(t, "buy", make_client_order_id(day, t, "buy"), notional=round(per_position - v, 2)))
+            elif v > per_position * (1 + REBALANCE_BAND):
+                sized.append(Order(t, "sell", make_client_order_id(day, t, "sell"),
+                                   qty=round((v - per_position) / prices[t], 6)))
+        buys = [o for o in sized if o.side == "buy"]
+        need = sum(o.notional for o in buys)
+        room = cash * CASH_BUFFER + sum((values.get(o.ticker, 0.0) if o.qty is None else o.qty * prices.get(o.ticker, 0.0))
+                                        for o in sized if o.side == "sell")
+        if need > room > 0:
+            scale = room / need
+            sized = [Order(o.ticker, o.side, o.client_order_id, notional=round(o.notional * scale, 2))
+                     if o.side == "buy" else o for o in sized]
+            notes.append(f"Buys scaled to {scale:.0%} so the bot stays within the cash it actually has (no margin).")
     if hasattr(broker, "get_account_summary"):
         day_pl = broker.get_account_summary().get("day_pl_pct")
         if daily_loss_halt(day_pl, DAILY_LOSS_LIMIT):
@@ -243,7 +287,7 @@ def run_eod(
     broker,
     universe: list[str] | None = None,
     top_n_count: int = 5,
-    order_usd: float = MAX_ORDER_USD,
+    order_usd: float | None = None,
     trading_day: date | None = None,
     dry_run: bool | None = None,
 ) -> dict:

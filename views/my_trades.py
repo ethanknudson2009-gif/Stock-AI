@@ -9,7 +9,7 @@ import streamlit as st
 from bot import DAILY_LOSS_LIMIT, MAX_PER_SECTOR, SIGNAL_LOG, STOP_LOSS_PCT
 from stock_ai.config import SECTORS
 from ui.components import banner, data_table, note, page_head, section, stat_grid, tone, verdict_banner
-from ui_common import ET, account_snapshot, equity_history_chart, fmt_stamp, spy_since
+from ui_common import ET, account_snapshot, equity_history_chart, fmt_stamp, order_signal_day, spy_since
 
 BOT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}_[A-Z.\-]+_(buy|sell)$")
 STATUS = {"accepted": "Queued", "new": "Queued", "pending_new": "Queued", "held": "Queued", "filled": "Filled",
@@ -21,6 +21,9 @@ if st.button("Refresh", icon=":material/refresh:"):
     account_snapshot.clear()
 
 snap = account_snapshot()
+if snap and "error" in snap:
+    banner("danger", "Couldn't reach Alpaca", snap["error"] + " — try Refresh in a moment.", icon="warning")
+    st.stop()
 if snap is None:
     banner("warn", "Alpaca isn't connected", "Add ALPACA_API_KEY and ALPACA_SECRET_KEY to .env to see your account here.",
            icon="link_off")
@@ -56,29 +59,39 @@ else:
     spy_base = float(spy_before.iloc[-1]) if len(spy_before) else float(spy.iloc[0])
     acct_ret, spy_ret = acct["equity"] / base - 1, float(spy.iloc[-1]) / spy_base - 1
     invested = 1 - acct["cash"] / acct["equity"]
-    items = [("Beating SPY since our first fill?", acct_ret > spy_ret, f"whole account {acct_ret:+.2%} vs SPY {spy_ret:+.2%}")]
+    items = [("Whole account ahead of SPY?", acct_ret > spy_ret, f"account {acct_ret:+.2%} vs SPY {spy_ret:+.2%} (includes idle cash and your manual trades)")]
     bot_pos = [p for p in positions if p["ticker"] in bot_tickers]
-    bot_fills = [o["filled_at"] for o in bot_orders if o["filled_at"] is not None]
-    if bot_pos and bot_fills:
-        d0 = min(bot_fills).astimezone(ET).date()
-        sp = spy_since(d0)
-        sp_b = sp[sp.index < pd.Timestamp(d0)]
-        sp_base = float(sp_b.iloc[-1]) if len(sp_b) else float(sp.iloc[0])
-        cost = sum(p["avg_entry"] * p["qty"] for p in bot_pos)
-        bot_ret, bot_spy = sum(p["pl"] for p in bot_pos) / cost, float(sp.iloc[-1]) / sp_base - 1
-        items.append(("Bot picks only beating SPY?", bot_ret > bot_spy,
-                      f"bot positions {bot_ret:+.2%} vs SPY {bot_spy:+.2%} since {d0:%b %d}"))
+    if bot_pos:
+        # Match each position with the same dollars put into SPY on the day that position was first bought.
+        entry = {}
+        for o in bot_orders:
+            if o["side"] == "buy" and o["filled_at"] is not None:
+                d = o["filled_at"].astimezone(ET).date()
+                entry[o["ticker"]] = min(d, entry.get(o["ticker"], d))
+        cost = spy_gain = 0.0
+        for p in bot_pos:
+            d0 = entry.get(p["ticker"], first_fill)
+            sp = spy_since(d0)
+            before_d0 = sp[sp.index < pd.Timestamp(d0)]
+            sp_base = float(before_d0.iloc[-1]) if len(before_d0) else float(sp.iloc[0])
+            c = p["avg_entry"] * p["qty"]
+            cost += c
+            spy_gain += c * (float(sp.iloc[-1]) / sp_base - 1)
+        bot_ret, bot_spy = sum(p["pl"] for p in bot_pos) / cost, spy_gain / cost
+        items.append(("Bot positions beating the same dollars in SPY?", bot_ret > bot_spy,
+                      f"bot positions {bot_ret:+.2%} vs SPY {bot_spy:+.2%}, each measured from its own buy date"))
     items.append(("Account mostly invested?", invested > 0.5, f"{invested:.0%} of the account is invested"))
     verdict_banner(items)
     st.caption(f"Since {first_fill:%b %d, %Y}: account {acct_ret:+.2%} (from \\${base:,.0f}) vs SPY {spy_ret:+.2%}. "
                "With only a few \\$500 positions most of the account sits in cash, so it can't move much either "
-               "way; judge the picks by the signal log, and this by total return over time.")
+               "way; the bot-positions line is the fairer test. It covers positions still held, so anything already "
+               "sold isn't counted yet. Prices here come from Alpaca and Yahoo, a minute or two apart.")
 
 # ---- Risk rules ----
 section("Risk rules", "limits the bot enforces on every run")
 held = {}
 for p in positions:
-    held.setdefault(SECTORS.get(p["ticker"], "Other"), []).append(p["ticker"])
+    held.setdefault(SECTORS.get(p["ticker"], "Not bot-managed"), []).append(p["ticker"])
 worst = min((p["pl_pct"] for p in positions), default=0.0)
 stat_grid([(f"Daily loss limit", f"-{DAILY_LOSS_LIMIT:.0%}", "accent"), ("Today", f"{acct['day_pl_pct']:+.2%}", tone(acct["day_pl_pct"])),
            ("Stop-loss per position", f"-{STOP_LOSS_PCT:.0%}", "accent"), ("Worst position", f"{worst:+.1%}", tone(worst)),
@@ -113,13 +126,15 @@ if orders:
         size = f"${o['notional']:,.0f}" if o["notional"] else f"{o['qty']:g} sh" if o["qty"] else "—"
         fill = f"${o['avg_price']:,.2f}" if o["avg_price"] else "—"
         bot = bool(BOT_ID.match(o["id"] or ""))
-        p = p_up.get((when.strftime("%Y-%m-%d"), o["ticker"]))
+        # Alpaca stamps after-hours orders with the next session's time; the signal's own date is in the order id
+        sig_day = order_signal_day(o["id"], when, bot)
+        p = p_up.get((sig_day, o["ticker"]))
         status = STATUS.get(o["status"], o["status"].replace("_", " ").title())
         rows.append([f"{when:%b %d %-I:%M %p}", o["ticker"], o["side"].upper(), size, status, fill,
                      "Bot" if bot else "Manual", f"{p:.0%}" if p is not None and bot else "—"])
         tones.append(["", "", "up" if o["side"] == "buy" else "down", "",
                       "up" if status == "Filled" else "down" if status in ("Rejected", "Canceled") else "", "", "", ""])
-    data_table(["Placed (ET)", "Ticker", "Side", "Size", "Status", "Fill price", "Source", "Model P(up)"],
+    data_table(["Accepted (ET)", "Ticker", "Side", "Size", "Status", "Fill price", "Source", "Model P(up)"],
                rows, None, tones)
 else:
     st.info("No orders yet.")
@@ -127,7 +142,7 @@ else:
 # ---- Equity ----
 section("Account value over time", "daily, from Alpaca")
 if len(snap["equity"]) >= 2:
-    st.plotly_chart(equity_history_chart(snap["equity"]), width="stretch", theme=None)
+    st.plotly_chart(equity_history_chart(snap["equity"], acct["equity"]), width="stretch", theme=None)
 else:
     st.info("The chart starts drawing once there are at least two trading days of history.")
 note("Orders submitted after the close wait for the next open. Market orders fill at the open price, which can "

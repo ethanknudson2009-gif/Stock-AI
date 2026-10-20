@@ -7,9 +7,9 @@ import bot
 from stock_ai.config import PRESETS
 from stock_ai.execution.signal_log import live_accuracy, log_signals, resolve_outcomes
 from ui.components import banner, data_table, note, page_head, section, stat_grid
-from ui_common import SETTINGS, get_broker, has_edge, latest_prices, parse_tickers, recent_closes, valid_ticker
+from ui_common import SETTINGS, fmt_stamp, get_broker, has_edge, latest_prices, now_et, parse_tickers, recent_closes, valid_ticker
 
-BACKTEST_ACC = 0.551   # 30-ticker harness median accuracy of the current model (2026-10-16)
+BACKTEST_ACC = 0.551   # 30-ticker harness median accuracy, measured 2026-10-16 -- re-run scripts/run_harness.py to refresh
 
 ss = st.session_state
 page_head("Paper Trade", "Preview today's intended orders, review them, then confirm.", eyebrow="Execution")
@@ -24,6 +24,8 @@ else:
            "Confirming will submit real orders to your Alpaca paper account.", icon="warning")
 stat_grid([
     ("Broker", "Alpaca paper" if broker_label.startswith("Alpaca") else "Demo (FakeBroker)", ""),
+    ("Target invested", f"{bot.TARGET_INVESTED:.0%} of equity", "accent"),
+    ("Max per position", f"{bot.MAX_POSITION_PCT:.0%} of equity", "accent"),
     ("Max per order", f"${bot.MAX_ORDER_USD:,.0f}", "accent"),
     ("Max orders / day", f"{bot.MAX_ORDERS_PER_DAY}", "accent"),
 ])
@@ -41,7 +43,8 @@ if details:
                [[d["ticker"], f"{d['qty']:g}", f"${d['avg_entry']:,.2f}", f"${d['price']:,.2f}",
                  f"${d['value']:,.0f}", f"{d['pl']:+,.0f} ({d['pl_pct']:+.1%})"] for d in details],
                None, [["", "", "", "", "", "up" if d["pl"] >= 0 else "down"] for d in details])
-    st.caption(f"Total unrealized P&L: {sum(d['pl'] for d in details):+,.2f} USD")
+    st.caption(f"Total unrealized P&L: {sum(d['pl'] for d in details):+,.2f} USD · live from Alpaca at {fmt_stamp(now_et())} "
+               "(My Trades refreshes every minute, so the two can differ slightly)")
 else:
     st.info("No open positions to show" + (" — connect Alpaca paper keys to see your real account."
             if broker_label.startswith("FakeBroker") else "."))
@@ -153,6 +156,9 @@ if st.button("Confirm & submit", type="primary", icon=":material/send:", disable
         st.success(f"DRY RUN: logged {result['planned']} orders to logs/orders.csv — none sent.")
     elif result["status"] == "halted":
         st.error(f"Halted: {result['reason']}.")
+    elif result["status"] == "partial":
+        st.warning(f"Submitted {result['submitted']} orders; {len(result['failed'])} failed: "
+                   + "; ".join(SETTINGS.scrub(f"{t}: {m}") for t, m in result["failed"]))
     else:
         st.success(f"Submitted {result['submitted']} paper orders.")
     ss.pop("pending_orders", None)

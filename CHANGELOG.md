@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-20 — Full audit fixes + equity-based sizing
+
+**Safety**
+- The bot never sells because data is missing: no/partial signals abort the run, an unscored holding is held.
+- The bot uses the same model as the app (all history, SPY regime) via `stock_ai/models/live.py`; it used to train a different, older one.
+- Edge check rebuilt: benchmark is the training-period up-rate, and the model must beat it with statistical confidence (block bootstrap). KO/PEP stopped counting as "edge".
+- Login now required for anything but direct localhost; Streamlit binds 127.0.0.1 (the LAN could previously skip the password); global lockout after 5 wrong guesses.
+- `DRY_RUN` now governs the daily job too; a dry run no longer uses up the day.
+- Orders are sent and logged one by one (a rejected order can't hide the rest); order cap counts the whole day; stopped-out names aren't re-bought for 7 days; duplicate-id handling no longer hides cancelled orders.
+
+**Sizing**
+- Positions sized from account equity: ~75% invested, at most 20% per position, real cash only (never margin), held names topped up/trimmed when they drift 30% from target. `BOT_REQUIRE_EDGE` (.env) decides whether names labelled "No edge" are traded (all 30 currently are).
+
+**Correctness / UI**
+- Account chart dates (UTC), weekends dropped, live equity plotted; order table shows each trade's model P(up); scoreboard compares each bot position with the same dollars in SPY.
+- Single Ticker / Portfolio keep their controls when you change pages; backtest end date and execution assumption are explained; SMA 50/200 uses real 200-day history; momentum baseline no longer idles for 6 months; "Latest backtest holdings" no longer claims to be today's call.
+- Latest trading day waits for the 4:15 PM bar (no half-finished candles); network/Alpaca errors show a message instead of a traceback; News Radar keeps its skeleton until ready, dedupes articles, no longer logs picks on page view; Claude prompt hardened, cache written atomically.
+- 103 tests (was 81). New: `requirements-lock.txt` pins the versions this was tested with.
+
 ## 2026-10-16 (later) — Alpaca connected + News Radar
 - Alpaca paper keys in `.env`; Paper Trade page now shows the real paper account (verified: $100k cash, no positions). DRY_RUN still on.
 - New **News Radar** page: Alpaca/Benzinga headlines for a universe, scored with a transparent finance-word lexicon

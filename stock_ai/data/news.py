@@ -66,6 +66,7 @@ def fetch_news(symbols: list[str], days: int = 3, limit: int = 600, now: datetim
              "source": a.source, "url": a.url, "symbols": list(a.symbols),
              "sentiment": score_text(f"{a.headline}. {a.summary or ''}")} for a in resp.data.get("news", [])]
     df = pd.DataFrame(rows, columns=["id", "time", "headline", "summary", "source", "url", "symbols", "sentiment"])
+    df = df.drop_duplicates("id").drop_duplicates(["headline", "source"]).reset_index(drop=True)   # re-posted wire copy
     df["sentiment_lex"] = df["sentiment"]
     df["sentiment_llm"] = float("nan")
     if use_llm and len(df):
