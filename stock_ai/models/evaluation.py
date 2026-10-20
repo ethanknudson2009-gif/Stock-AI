@@ -45,19 +45,45 @@ def base_rate_brier(labels: pd.Series, horizon: int = 5) -> float:
     return float(((prior - y) ** 2).mean())
 
 
-def edge_check(proba: pd.Series, labels: pd.Series, horizon: int = 5) -> dict:
-    """Minimum-edge rule: does the model's out-of-sample Brier beat the base-rate predictor's?
+def _block_means(x: np.ndarray, n_boot: int, block: int, seed: int) -> np.ndarray:
+    """Means of `n_boot` moving-block bootstrap resamples of `x` (blocks keep day-to-day dependence)."""
+    n = len(x)
+    block = max(1, min(block, n))
+    rng = np.random.default_rng(seed)
+    n_blocks = -(-n // block)
+    starts = rng.integers(0, n - block + 1, size=(n_boot, n_blocks))
+    idx = (starts[:, :, None] + np.arange(block)).reshape(n_boot, -1)[:, :n]
+    return x[idx].mean(axis=1)
 
-    If not, the app must say "no reliable edge" rather than issue a Buy. `margin` is
-    base minus model Brier (positive = the model is better calibrated than quoting
-    the historical up-frequency).
+
+def edge_check(proba: pd.Series, labels: pd.Series, horizon: int = 5, prior: float | None = None,
+               n_boot: int = 500, block: int = 20, seed: int = 0) -> dict:
+    """Minimum-edge rule: does the model's out-of-sample Brier beat the base-rate predictor's, reliably?
+
+    The base-rate predictor quotes one fixed number: `prior`, the up-frequency seen in the *training*
+    data (known before the first out-of-sample day, so it is a fair, informed benchmark). Without a
+    `prior` it falls back to the lagged running frequency of the out-of-sample labels.
+    The model must win on average AND the win must survive a block bootstrap: the 5th percentile of
+    the average per-day Brier advantage has to be above zero. A tiny win that could be noise is not
+    an edge. `margin` is base minus model Brier (positive = model better); `margin_lo` is its lower bound.
     """
     y = labels.reindex(proba.index).dropna().astype(float)
     p = proba.loc[y.index]
-    brier = float(((p - y) ** 2).mean()) if len(y) else 1.0
-    base = base_rate_brier(y, horizon)
-    return {"brier": brier, "base_brier": base, "margin": base - brier,
-            "has_edge": len(y) > 0 and brier < base, "base_rate": float(y.mean()) if len(y) else 0.5}
+    if not len(y):
+        return {"brier": 1.0, "base_brier": 0.25, "margin": 0.0, "margin_lo": 0.0, "has_edge": False,
+                "base_rate": 0.5, "prior": prior}
+    model_sq = ((p - y) ** 2).to_numpy()
+    if prior is None:
+        running = y.expanding().mean().shift(horizon).fillna(0.5)
+        base_sq = ((running - y) ** 2).to_numpy()
+    else:
+        base_sq = ((prior - y) ** 2).to_numpy()
+    adv = base_sq - model_sq
+    lo = float(np.percentile(_block_means(adv, n_boot, block, seed), 5)) if len(adv) >= 2 * block else float("nan")
+    margin = float(adv.mean())
+    return {"brier": float(model_sq.mean()), "base_brier": float(base_sq.mean()), "margin": margin,
+            "margin_lo": lo, "has_edge": bool(margin > 0 and lo > 0),
+            "base_rate": float(prior if prior is not None else y.mean()), "prior": prior}
 
 
 def block_bootstrap_sharpe(returns: pd.Series, n_boot: int = 500, block: int = 20,

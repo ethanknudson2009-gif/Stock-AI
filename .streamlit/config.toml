@@ -5,6 +5,7 @@ toolbarMode = "minimal"   # hides the Deploy button and the hamburger menu
 
 [server]
 headless = true
+address = "127.0.0.1"   # never listen on the Wi-Fi; the Cloudflare tunnel connects from this machine
 
 # Base theme for Streamlit's native widgets. The real design tokens (and the
 # dark/light switch) live in ui/theme.py; these mirror its dark values.

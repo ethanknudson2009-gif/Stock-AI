@@ -103,7 +103,9 @@ def run(trade: bool, force: bool) -> int:
     broker = AlpacaPaperBroker()
     sigs: dict = {}
     notes: list = []
-    orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs, risk_out=notes)
+    stopped: list = []
+    orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs,
+                             risk_out=notes, stopped_out=stopped)
     for n in notes:
         _log(f"risk rule: {n}")
     if notes:
@@ -117,11 +119,17 @@ def run(trade: bool, force: bool) -> int:
         else:
             _log(f"no price for {t}; leaving it out of the signal log")
     sigs = {t: v for t, v in sigs.items() if t in px}
-    added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG)
+    added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG, overwrite=True)
     _log(f"signals logged: {added} new of {len(sigs)}")
 
-    result = bot.submit_orders(broker, orders, dry_run=False if trade else True)
+    # --trade asks to send orders, but the DRY_RUN switch still wins: both must agree before anything is sent.
+    dry = bot.dry_run_enabled() or not trade
+    result = bot.submit_orders(broker, orders, dry_run=dry)
     _log(f"orders {[(o.ticker, o.side) for o in orders]} -> {result}")
+    if result["status"] == "submitted" or result["status"] == "partial":
+        bot.record_stops(stopped, bot.trading_day_today())
+    if result.get("failed"):
+        _notify("Stock AI: some orders FAILED", "; ".join(f"{t}: {m}" for t, m in result["failed"])[:200])
 
     try:
         ranked = rank_tickers(fetch_news(list(DEFAULT_UNIVERSE), days=3, use_llm=True), list(DEFAULT_UNIVERSE))
@@ -141,11 +149,18 @@ def run(trade: bool, force: bool) -> int:
             _log(f"graded {path.name}: {int(log['went_up'].notna().sum())}/{len(log)} resolved")
 
     STATE.parent.mkdir(exist_ok=True)
-    STATE.write_text(json.dumps({"last_done": now.date().isoformat()}))
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    if dry:   # a dry run is logged but must not use up the day: the real run still has to happen
+        state["last_dry"] = now.date().isoformat()
+        _log(f"dry run only (DRY_RUN={'on' if bot.dry_run_enabled() else 'off'}, trade={trade}) — nothing sent")
+    else:
+        state["last_done"] = now.date().isoformat()
+    STATE.write_text(json.dumps(state))
     _log("done")
-    _notify("Stock AI: daily run done", f"{len(orders)} orders {'placed' if trade else 'planned'}: "
-            + ", ".join(f"{o.side} {o.ticker}" for o in orders) if orders else "No order changes today.")
-    return 0
+    verb = "planned (dry run)" if dry else "placed"
+    _notify("Stock AI: daily run done", (f"{len(orders)} orders {verb}: " + ", ".join(f"{o.side} {o.ticker}" for o in orders))
+            if orders else "No order changes today.")
+    return 1 if result.get("failed") else 0
 
 
 if __name__ == "__main__":

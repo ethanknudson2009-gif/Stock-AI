@@ -124,7 +124,7 @@ def test_plan_orders_applies_risk_rules_for_alpaca_like_broker(monkeypatch):
         def get_account_summary(self):
             return {"day_pl_pct": -0.05}
 
-    monkeypatch.setattr(bot, "latest_signals", lambda universe: {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7})
+    monkeypatch.setattr(bot, "evaluate_universe", lambda u: ({"AAA": 0.9, "BBB": 0.8, "CCC": 0.7}, dict.fromkeys("ABC", False) | {"AAA": True, "BBB": True, "CCC": True}))
     broker = RiskyBroker(dry_run=False)
     broker.submit_order(bot.Order("AAA", "buy", "x1"))                  # we already hold AAA
     notes: list = []
@@ -137,9 +137,63 @@ def test_bot_leaves_positions_outside_its_universe_alone(monkeypatch):
     import bot
     from stock_ai.execution import FakeBroker
 
-    monkeypatch.setattr(bot, "latest_signals", lambda universe: {"AAA": 0.9, "BBB": 0.8})
+    monkeypatch.setattr(bot, "evaluate_universe", lambda u: ({"AAA": 0.9, "BBB": 0.8}, {"AAA": True, "BBB": True}))
     broker = FakeBroker(dry_run=False)
     broker.submit_order(bot.Order("SPY", "buy", "manual-spy"))          # held, but not in the bot's universe
     orders = bot.plan_orders(broker, universe=["AAA", "BBB"], top_n_count=2)
     assert all(o.ticker != "SPY" for o in orders)                      # never sold
     assert {o.ticker for o in orders} == {"AAA", "BBB"}                # and it doesn't eat a top-N slot
+
+
+def _plan(monkeypatch, broker, proba, edge, universe, top_n=2, **kw):
+    import bot
+
+    monkeypatch.setattr(bot, "evaluate_universe", lambda u: (proba, edge))
+    monkeypatch.setattr(bot, "COOLDOWN_FILE", kw.pop("cooldown_file"))
+    return bot.plan_orders(broker, universe=universe, top_n_count=top_n, **kw)
+
+
+def test_data_outage_never_liquidates_positions(monkeypatch, tmp_path):
+    import bot
+    from stock_ai.execution import FakeBroker
+
+    broker = FakeBroker(dry_run=False)
+    for t in ("AAA", "BBB"):
+        broker.submit_order(bot.Order(t, "buy", f"x_{t}"))
+    cd = tmp_path / "cd.json"
+    # total outage: nothing could be scored -> refuse, don't sell
+    import pytest
+    with pytest.raises(RuntimeError, match="refusing"):
+        _plan(monkeypatch, broker, {}, {}, ["AAA", "BBB", "CCC", "DDD", "EEE"], cooldown_file=cd)
+    # partial: AAA unscored but 4 of 5 others fine -> AAA is held, not sold
+    proba = {"BBB": 0.9, "CCC": 0.8, "DDD": 0.7, "EEE": 0.6}
+    orders = _plan(monkeypatch, broker, proba, dict.fromkeys(proba, True), ["AAA", "BBB", "CCC", "DDD", "EEE"],
+                   cooldown_file=cd, risk_out=(notes := []))
+    assert not any(o.ticker == "AAA" and o.side == "sell" for o in orders)
+    assert any("holding them" in n for n in notes)
+
+
+def test_bot_only_buys_names_with_a_reliable_edge(monkeypatch, tmp_path):
+    from stock_ai.execution import FakeBroker
+
+    proba = {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7}
+    orders = _plan(monkeypatch, FakeBroker(dry_run=False), proba, {"AAA": False, "BBB": True, "CCC": True},
+                   list(proba), cooldown_file=tmp_path / "cd.json")
+    assert {o.ticker for o in orders} == {"BBB", "CCC"}               # AAA ranks first but has no edge
+
+
+def test_stopped_out_ticker_is_not_rebought_during_cooldown(monkeypatch, tmp_path):
+    import bot
+    from datetime import date
+    from stock_ai.execution import FakeBroker
+
+    cd = tmp_path / "cd.json"
+    bot.record_stops(["AAA"], date(2026, 10, 20), cd)
+    proba = {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7}
+    edge = dict.fromkeys(proba, True)
+    orders = _plan(monkeypatch, FakeBroker(dry_run=False), proba, edge, list(proba), cooldown_file=cd,
+                   trading_day=date(2026, 10, 22))
+    assert "AAA" not in {o.ticker for o in orders}
+    later = _plan(monkeypatch, FakeBroker(dry_run=False), proba, edge, list(proba), cooldown_file=cd,
+                  trading_day=date(2026, 11, 5))
+    assert "AAA" in {o.ticker for o in later}

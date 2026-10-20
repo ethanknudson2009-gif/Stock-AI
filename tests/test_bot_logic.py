@@ -83,3 +83,42 @@ def test_daily_job_runs_once_per_trading_day_after_the_close():
     assert not mod.should_run(fri_noon, None)[0]             # market still open
     assert not mod.should_run(sat, None)[0]                  # weekend
     assert mod.should_run(fri_noon, None, force=True)[0]
+
+
+class _Flaky:
+    """Broker whose second order is rejected."""
+
+    def __init__(self):
+        self.sent = []
+
+    def submit_order(self, order):
+        if order.ticker == "BAD":
+            raise ValueError("BAD is not tradable")
+        self.sent.append(order.ticker)
+
+
+def test_one_rejected_order_does_not_hide_the_others(tmp_path):
+    import csv
+
+    orders = [bot.Order("AAA", "buy", "d_AAA_buy", notional=100), bot.Order("BAD", "buy", "d_BAD_buy", notional=100),
+              bot.Order("CCC", "buy", "d_CCC_buy", notional=100)]
+    broker = _Flaky()
+    log = tmp_path / "orders.csv"
+    res = bot.submit_orders(broker, orders, dry_run=False, kill_switch_path=tmp_path / "KS", log_path=log)
+    assert res["status"] == "partial" and res["submitted"] == 2 and res["failed"][0][0] == "BAD"
+    assert broker.sent == ["AAA", "CCC"]
+    statuses = {r["ticker"]: r["status"] for r in csv.DictReader(log.open())}
+    assert statuses["AAA"] == "submitted" and statuses["BAD"].startswith("failed")
+
+
+def test_orders_per_day_cap_counts_the_whole_day_not_one_batch(tmp_path):
+    import pytest
+
+    log = tmp_path / "orders.csv"
+    kw = dict(dry_run=False, kill_switch_path=tmp_path / "KS", log_path=log, trading_day=__import__("datetime").date(2026, 1, 2))
+    first = [bot.Order(f"T{i}", "buy", f"d_T{i}_buy", notional=10) for i in range(15)]
+    second = [bot.Order(f"U{i}", "buy", f"d_U{i}_buy", notional=10) for i in range(10)]
+    bot.submit_orders(_Flaky(), first, **kw)
+    with pytest.raises(ValueError, match="MAX_ORDERS_PER_DAY"):
+        bot.submit_orders(_Flaky(), second, **kw)                       # 15 + 10 > 20
+    bot.submit_orders(_Flaky(), first, **kw)                           # same ids again: not new orders, fine

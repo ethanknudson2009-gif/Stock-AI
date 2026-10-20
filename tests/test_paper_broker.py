@@ -46,6 +46,11 @@ class FakeTradingClient:
         self.submitted.append(order_data)
         return SimpleNamespace(id="srv-1", client_order_id=coid)
 
+    existing_status = "accepted"
+
+    def get_order_by_client_id(self, client_id):
+        return SimpleNamespace(client_order_id=client_id, status=SimpleNamespace(value=self.existing_status))
+
 
 def _order(side="buy"):
     return Order("AAPL", side, "2026-10-13_AAPL_" + side, notional=100.0, qty=1.0)
@@ -112,3 +117,22 @@ def test_paper_is_sole_alpaca_trading_importer():
         elif allowed[p.name] and "alpaca.trading" in text:
             offenders.append(f"{p.name} (imports alpaca.trading)")
     assert offenders == [], f"alpaca-py imported outside its allowed place: {offenders}"
+
+
+def test_duplicate_of_a_dead_order_is_not_silently_treated_as_sent():
+    client = FakeTradingClient()
+    broker = AlpacaPaperBroker(client=client)
+    order = _order("buy")
+    broker.submit_order(order)
+    client.existing_status = "canceled"
+    with pytest.raises(ValueError, match="canceled"):
+        broker.submit_order(order)
+
+
+def test_other_api_errors_are_not_swallowed():
+    class Broken(FakeTradingClient):
+        def submit_order(self, order_data):
+            raise APIError('{"message":"insufficient buying power"}')
+
+    with pytest.raises(APIError):
+        AlpacaPaperBroker(client=Broken()).submit_order(_order("buy"))

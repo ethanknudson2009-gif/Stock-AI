@@ -184,3 +184,17 @@ def latest_signal(df: pd.DataFrame, spec: ModelSpec | None = None) -> tuple[floa
     model = _fit_model(labeled[cols], labeled["label"], spec.kind)
     latest = df[cols].iloc[[-1]]
     return float(model.predict_proba(latest)[0, 1]), df.index[-1]
+
+
+def training_prior(df: pd.DataFrame, first_test_index, spec: ModelSpec | None = None) -> float:
+    """Share of 'up' labels among rows whose label was fully known before `first_test_index`.
+
+    This is what a base-rate predictor could honestly have quoted when the first out-of-sample day
+    arrived: the stock's up-frequency in its training history (the last LABEL_HORIZON rows are left
+    out because their labels peek into the test window).
+    """
+    spec = spec or DEFAULT_SPEC
+    labels = build_labels(df, target=spec.target)["label"]
+    pos = int(labels.index.searchsorted(first_test_index))
+    known = labels.iloc[: max(0, pos - LABEL_HORIZON)]
+    return float(known.mean()) if len(known) else 0.5

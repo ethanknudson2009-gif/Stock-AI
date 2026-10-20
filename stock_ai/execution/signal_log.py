@@ -18,13 +18,22 @@ def _read(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, dtype={"date": str, "ticker": str, "outcome_date": str})
 
 
-def log_signals(proba: dict[str, float], prices: dict[str, float], day, path: Path) -> int:
-    """Append today's signals, once per (date, ticker). Returns how many rows were added."""
+def log_signals(proba: dict[str, float], prices: dict[str, float], day, path: Path, overwrite: bool = False) -> int:
+    """Append today's signals, once per (date, ticker). Returns how many rows were added.
+
+    With `overwrite=True` (the scheduled job, which runs on final closing prices) an existing row for the
+    same day that has not been graded yet is replaced, so an earlier mid-day preview can't pin its numbers.
+    """
     log = _read(path)
+    if overwrite and len(log):
+        stale = (log["date"] == str(day)) & log["ticker"].isin(proba) & log["went_up"].isna()
+        log = log[~stale].reset_index(drop=True)
     seen = set(zip(log["date"], log["ticker"]))
     rows = [{"date": str(day), "ticker": t, "p_up": round(p, 4), "price": prices.get(t)}
             for t, p in proba.items() if (str(day), t) not in seen]
     if not rows:
+        if overwrite:
+            log.to_csv(path, index=False)
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.concat([log, pd.DataFrame(rows, columns=COLUMNS)], ignore_index=True).to_csv(path, index=False)
@@ -36,6 +45,7 @@ def resolve_outcomes(closes: dict[str, pd.Series], path: Path, horizon: int = LA
     log = _read(path)
     if log.empty:
         return log
+    changed = False
     for i, row in log.iterrows():
         if pd.notna(row["went_up"]) or row["ticker"] not in closes:
             continue
@@ -43,9 +53,11 @@ def resolve_outcomes(closes: dict[str, pd.Series], path: Path, horizon: int = LA
         later = s[s.index > pd.Timestamp(row["date"])]
         if len(later) < horizon or pd.isna(row["price"]):
             continue
+        changed = True
         log.loc[i, ["outcome_date", "outcome_price"]] = [str(later.index[horizon - 1].date()), float(later.iloc[horizon - 1])]
         log.loc[i, "went_up"] = float(later.iloc[horizon - 1] > row["price"])
-    log.to_csv(path, index=False)
+    if changed:   # merely viewing a page must not rewrite the file
+        log.to_csv(path, index=False)
     return log
 
 

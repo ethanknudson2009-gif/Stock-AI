@@ -109,9 +109,15 @@ class AlpacaPaperBroker:
         try:
             self._client.submit_order(order_data=request)
         except APIError as exc:
-            # Alpaca rejects a duplicate client_order_id (422). That means the order
-            # already exists — treat as success so reruns/retries are idempotent.
-            if "client_order_id" in str(exc).lower() or "duplicate" in str(exc).lower():
+            # Alpaca rejects a duplicate client_order_id (422). That means the order already exists — success,
+            # so reruns/retries are idempotent — unless that earlier order died (canceled/expired/rejected).
+            msg = str(exc).lower()
+            if "client_order_id" in msg and any(w in msg for w in ("unique", "duplicate", "already")):
+                existing = self._client.get_order_by_client_id(order.client_order_id)
+                status = getattr(existing.status, "value", str(existing.status))
+                if status in ("canceled", "expired", "rejected"):
+                    raise ValueError(f"{order.ticker}: today's earlier order {order.client_order_id} ended "
+                                     f"as {status}; it was not re-sent") from exc
                 return order
             raise
         return order

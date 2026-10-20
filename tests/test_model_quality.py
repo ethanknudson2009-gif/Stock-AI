@@ -191,3 +191,27 @@ def test_claude_scoring_parses_caches_and_falls_back(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     s3, _ = sentiment.score_with_claude(news.assign(id=["c", "d"]))    # no key: NaN -> caller falls back to word list
     assert s3.isna().all()
+
+
+def test_edge_needs_statistical_confidence_and_uses_the_training_prior():
+    from stock_ai.models.evaluation import edge_check
+
+    rng = np.random.default_rng(3)
+    idx = pd.date_range("2020-01-01", periods=500, freq="B")
+    labels = pd.Series((rng.random(500) < 0.58).astype(float), index=idx)
+    jitter = pd.Series(0.58 + rng.normal(0, 0.03, 500), index=idx)      # wobbles around the prior, knows nothing
+    assert not edge_check(jitter, labels, prior=0.58)["has_edge"]
+    e = edge_check(pd.Series(0.58, index=idx), labels, prior=0.58)       # model == base rate -> zero margin
+    assert abs(e["margin"]) < 1e-12 and not e["has_edge"]
+    assert e["base_rate"] == 0.58                                       # reported benchmark is the prior, not hindsight
+
+
+def test_training_prior_uses_only_labels_known_before_the_test_window():
+    from stock_ai.models.classifier import LABEL_HORIZON, training_prior
+
+    idx = pd.date_range("2020-01-01", periods=100, freq="B")
+    close = pd.Series(np.r_[np.linspace(100, 50, 60), np.linspace(50, 150, 40)], index=idx)   # falls, then rises
+    df = pd.DataFrame({"Close": close})
+    first_test = idx[60]
+    assert training_prior(df, first_test) < 0.1       # training period only fell; the later rally is the future
+    assert LABEL_HORIZON == 5

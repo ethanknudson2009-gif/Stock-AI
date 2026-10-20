@@ -10,30 +10,31 @@ hard caps bound per-order dollars and daily order count (Pitfall #8).
 """
 
 import csv
+import json
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from stock_ai.config import DEFAULT_UNIVERSE, SECTORS
-from stock_ai.data.loader import fetch_price_history
 from stock_ai.execution.base import Order, make_client_order_id
 from stock_ai.execution.clock import trading_day_today
 from stock_ai.execution.diff import diff
 from stock_ai.execution.risk import apply_sector_cap, daily_loss_halt, stop_loss_tickers
-from stock_ai.features.indicators import add_features
-from stock_ai.models.classifier import FEATURE_COLUMNS, train_model
-from stock_ai.models.rf_backend import RandomForestBackend
+from stock_ai.models.live import evaluate_ticker
 
 REPO_ROOT = Path(__file__).resolve().parent
 KILL_SWITCH = REPO_ROOT / "KILL_SWITCH"
 ORDER_LOG = REPO_ROOT / "logs" / "orders.csv"
 SIGNAL_LOG = REPO_ROOT / "logs" / "signals.csv"
+COOLDOWN_FILE = REPO_ROOT / "logs" / "stopped_out.json"
 
 MAX_ORDER_USD = 500.0      # hard per-order dollar cap (BL-02)
 MAX_ORDERS_PER_DAY = 20    # hard daily order-count cap (BL-03)
 MAX_PER_SECTOR = 2         # at most this many holdings from one sector
 STOP_LOSS_PCT = 0.10       # sell a position that is down this much from cost
 DAILY_LOSS_LIMIT = 0.03    # account down this much today -> no new buys
+COOLDOWN_DAYS = 7          # a stopped-out ticker is not re-bought for this many calendar days
+MIN_SIGNAL_COVERAGE = 0.8  # refuse to trade if fewer than this share of the universe could be scored
 
 
 def dry_run_enabled() -> bool:
@@ -46,19 +47,44 @@ def kill_switch_active(path: Path = KILL_SWITCH) -> bool:
     return path.exists()
 
 
-def latest_signals(universe: list[str], start: str = "2015-01-01") -> dict[str, float]:
-    """Train per ticker on its history and return each ticker's latest P(up)."""
+def evaluate_universe(universe: list[str]) -> tuple[dict[str, float], dict[str, bool]]:
+    """Score every ticker the way the app does: ({ticker: P(up)}, {ticker: has a reliable edge}).
+
+    A ticker whose data can't be loaded is simply absent from both dicts; the caller decides what that means.
+    """
     proba: dict[str, float] = {}
+    edge: dict[str, bool] = {}
     for ticker in universe:
         try:
-            df = add_features(fetch_price_history(ticker, start))
-            model, _acc, _tr, _te = train_model(df)
-            backend = RandomForestBackend.from_fitted(model)
-            latest = df[FEATURE_COLUMNS].iloc[[-1]]
-            proba[ticker] = float(backend.predict_proba_up(latest).iloc[0])
+            r = evaluate_ticker(ticker)
         except Exception:  # noqa: BLE001 — one bad ticker shouldn't sink the run
             continue
-    return proba
+        proba[ticker], edge[ticker] = r["p_up"], r["has_edge"]
+    return proba, edge
+
+
+def load_cooldown(today: date, path: Path | None = None) -> set[str]:
+    """Tickers stopped out within the last COOLDOWN_DAYS days (not to be re-bought yet)."""
+    try:
+        data = json.loads((path or COOLDOWN_FILE).read_text())
+    except (OSError, ValueError):
+        return set()
+    cutoff = (today - timedelta(days=COOLDOWN_DAYS)).isoformat()
+    return {t for t, d in data.items() if d >= cutoff}
+
+
+def record_stops(tickers: list[str], today: date, path: Path | None = None) -> None:
+    """Remember that these tickers were stopped out today."""
+    if not tickers:
+        return
+    path = path or COOLDOWN_FILE
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data.update({t: today.isoformat() for t in tickers})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
 
 
 def plan_orders(
@@ -69,6 +95,8 @@ def plan_orders(
     trading_day: date | None = None,
     signals_out: dict | None = None,
     risk_out: list | None = None,
+    stopped_out: list | None = None,
+    require_edge: bool = True,
 ) -> list[Order]:
     """Compute today's intended orders (no submission). Used by the Preview step.
 
@@ -79,9 +107,12 @@ def plan_orders(
     """
     universe = universe or list(DEFAULT_UNIVERSE)
     day = trading_day or trading_day_today()
-    proba = latest_signals(universe)
+    proba, edge = evaluate_universe(universe)
     if signals_out is not None:
         signals_out.update(proba)
+    if len(proba) < MIN_SIGNAL_COVERAGE * len(universe):
+        raise RuntimeError(f"Only {len(proba)} of {len(universe)} tickers could be scored (data problem?); "
+                           "refusing to plan orders from a partial picture.")
 
     notes = risk_out if risk_out is not None else []
     managed = set(universe)  # the bot only touches its own universe; anything else (e.g. a manual SPY buy) is left alone
@@ -89,15 +120,29 @@ def plan_orders(
                if d["ticker"] in managed]
     stopped = stop_loss_tickers(details, STOP_LOSS_PCT)
     if stopped:
-        notes.append(f"Stop-loss: {', '.join(stopped)} down {STOP_LOSS_PCT:.0%}+ from cost — sell, don't re-buy today.")
-    ranked = [t for t in sorted(proba, key=proba.get, reverse=True) if t not in stopped]
+        notes.append(f"Stop-loss: {', '.join(stopped)} down {STOP_LOSS_PCT:.0%}+ from cost — sell, and no re-buy for {COOLDOWN_DAYS} days.")
+        if stopped_out is not None:
+            stopped_out.extend(stopped)
+    cooling = load_cooldown(day)
+    ranked = [t for t in sorted(proba, key=proba.get, reverse=True) if t not in stopped and t not in cooling]
+    if require_edge:
+        no_edge = [t for t in ranked if not edge.get(t)]
+        ranked = [t for t in ranked if edge.get(t)]
+        if no_edge:
+            notes.append(f"No reliable edge on {len(no_edge)} of {len(proba)} tickers — the bot only buys names where "
+                         "the model beats the base rate with statistical confidence.")
     target = apply_sector_cap(ranked, top_n_count, MAX_PER_SECTOR, SECTORS)
     plain = apply_sector_cap(ranked, top_n_count, None, SECTORS)
     if target != plain:
         notes.append(f"Sector cap ({MAX_PER_SECTOR} per sector) swapped out: {', '.join(sorted(set(plain) - set(target)))}.")
 
     current = {t: q for t, q in broker.get_positions().items() if t in managed}
-    orders = diff(current, target, day, max_positions=top_n_count)
+    # A held ticker we couldn't score today is a data problem, not a sell signal: leave it alone.
+    unscored = sorted(t for t in current if t not in proba and t not in stopped)
+    if unscored:
+        notes.append(f"No data today for {', '.join(unscored)} — holding them rather than selling blind.")
+    orders = [o for o in diff(current, target, day, max_positions=top_n_count)
+              if not (o.side == "sell" and o.ticker in unscored)]
     # Size buys in dollars; sells close the existing share quantity.
     sized = []
     for o in orders:
@@ -106,9 +151,9 @@ def plan_orders(
         else:
             sized.append(Order(o.ticker, "sell", o.client_order_id, qty=current.get(o.ticker)))
     if hasattr(broker, "get_account_summary"):
-        day = broker.get_account_summary().get("day_pl_pct")
-        if daily_loss_halt(day, DAILY_LOSS_LIMIT):
-            notes.append(f"Daily loss limit hit (account {day:+.1%} today, limit -{DAILY_LOSS_LIMIT:.0%}): new buys paused.")
+        day_pl = broker.get_account_summary().get("day_pl_pct")
+        if daily_loss_halt(day_pl, DAILY_LOSS_LIMIT):
+            notes.append(f"Daily loss limit hit (account {day_pl:+.1%} today, limit -{DAILY_LOSS_LIMIT:.0%}): new buys paused.")
             sized = [o for o in sized if o.side == "sell"]
     return sized
 
@@ -139,6 +184,16 @@ def _log_orders(orders: list[Order], status: str, day: date, log_path: Path = OR
             w.writerow([day, o.ticker, o.side, o.notional, o.qty, o.client_order_id, status])
 
 
+def _sent_today(day: date, log_path: Path) -> set[str]:
+    """client_order_ids already submitted (not dry-run) on `day`, from the order log."""
+    try:
+        with log_path.open(newline="") as f:
+            return {r["client_order_id"] for r in csv.DictReader(f)
+                    if r["date"] == str(day) and r["status"] == "submitted"}
+    except OSError:
+        return set()
+
+
 def submit_orders(
     broker,
     orders: list[Order],
@@ -147,7 +202,11 @@ def submit_orders(
     kill_switch_path: Path = KILL_SWITCH,
     log_path: Path = ORDER_LOG,
 ) -> dict:
-    """Submit (or log) the planned orders with every safety rail applied."""
+    """Submit (or log) the planned orders with every safety rail applied.
+
+    Each order is sent and logged on its own, so one rejected order cannot hide the ones already sent.
+    The orders-per-day cap counts what this day's log already holds, not just this batch.
+    """
     day = trading_day or trading_day_today()
     dry = dry_run_enabled() if dry_run is None else dry_run
 
@@ -161,12 +220,23 @@ def submit_orders(
         _log_orders(orders, "dry_run", day, log_path)
         return {"submitted": 0, "status": "dry_run", "planned": len(orders)}
 
-    submitted = 0
+    already = _sent_today(day, log_path)
+    fresh = [o for o in orders if o.client_order_id not in already]
+    if len(already) + len(fresh) > MAX_ORDERS_PER_DAY:
+        raise ValueError(f"{len(already)} orders already sent today + {len(fresh)} new exceeds "
+                         f"MAX_ORDERS_PER_DAY={MAX_ORDERS_PER_DAY}")
+
+    submitted, failed = 0, []
     for o in orders:
-        broker.submit_order(o)
+        try:
+            broker.submit_order(o)
+        except Exception as exc:  # noqa: BLE001 — keep going; report every failure
+            _log_orders([o], f"failed: {type(exc).__name__}", day, log_path)
+            failed.append((o.ticker, f"{type(exc).__name__}: {exc}"))
+            continue
+        _log_orders([o], "submitted", day, log_path)
         submitted += 1
-    _log_orders(orders, "submitted", day, log_path)
-    return {"submitted": submitted, "status": "submitted"}
+    return {"submitted": submitted, "failed": failed, "status": "partial" if failed else "submitted"}
 
 
 def run_eod(
