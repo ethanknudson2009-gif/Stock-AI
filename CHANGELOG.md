@@ -13,6 +13,9 @@
 **Sizing**
 - Positions sized from account equity: ~75% invested, at most 20% per position, real cash only (never margin), held names topped up/trimmed when they drift 30% from target. `BOT_REQUIRE_EDGE` (.env) decides whether names labelled "No edge" are traded (all 30 currently are).
 
+**Review**
+- New daily self-review (`stock_ai/execution/review.py`): after each run Claude critiques the day and proposes up to 5 actions, validated against the bot's rules and shown on My Trades. Proposals only; never sent to the broker. Falls back to plain rules without a key. Holds 10 stocks now.
+
 **Correctness / UI**
 - Account chart dates (UTC), weekends dropped, live equity plotted; order table shows each trade's model P(up); scoreboard compares each bot position with the same dollars in SPY.
 - Single Ticker / Portfolio keep their controls when you change pages; backtest end date and execution assumption are explained; SMA 50/200 uses real 200-day history; momentum baseline no longer idles for 6 months; "Latest backtest holdings" no longer claims to be today's call.

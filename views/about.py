@@ -70,6 +70,8 @@ st.markdown("""
 - **Risk rules:** at most 2 holdings per sector, a 10% per-position stop-loss (no re-buy for 7 days), and no new buys
   if the account is down 3% on the day. These are checked once a day, after the close, not during the session.
   The bot only manages its own 30-stock universe and never touches your manual holdings.
+- **Daily review:** after each run Claude critiques the day (what went well, concerns, up to 5 suggested actions) and the
+  result appears on My Trades. Suggestions are proposals only — nothing a language model writes is ever sent to the broker.
 - **The bot only buys names with a reliable edge** (see the rule above), uses the same model the app evaluates,
   and refuses to trade at all if too many tickers can't be scored. A ticker with missing data is held, never sold blind.
 - **Login:** the app listens only on this computer; anyone arriving through the tunnel or the local network must enter

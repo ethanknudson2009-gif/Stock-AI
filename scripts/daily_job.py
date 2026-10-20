@@ -148,6 +148,20 @@ def run(trade: bool, force: bool) -> int:
             log = resolve_outcomes(closes, path)
             _log(f"graded {path.name}: {int(log['went_up'].notna().sum())}/{len(log)} resolved")
 
+    try:   # proposals only: a review is written down for a human, never sent to the broker
+        from stock_ai.execution.review import build_context, review_day, rule_based_review, save_review
+        from stock_ai.execution.signal_log import live_accuracy
+
+        acct, pos = broker.get_account_summary(), broker.get_position_details()
+        live = live_accuracy(pd.read_csv(bot.SIGNAL_LOG)) if bot.SIGNAL_LOG.exists() else {"n": 0, "pending": 0}
+        ctx = build_context(acct, pos, [{"side": o.side, "ticker": o.ticker} for o in orders], notes, sigs, live,
+                            bot.trading_day_today())
+        review = review_day(ctx, set(sigs), rule_based_review(acct, pos, notes, live, set(sigs)))
+        save_review(review, bot.trading_day_today())
+        _log(f"review ({review['source']}): {review['summary'][:160]} | {len(review['suggestions'])} suggestions")
+    except Exception as exc:  # noqa: BLE001
+        _log(f"review step failed: {type(exc).__name__}: {exc}")
+
     STATE.parent.mkdir(exist_ok=True)
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     if dry:   # a dry run is logged but must not use up the day: the real run still has to happen

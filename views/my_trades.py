@@ -9,6 +9,7 @@ import streamlit as st
 from bot import DAILY_LOSS_LIMIT, MAX_PER_SECTOR, SIGNAL_LOG, STOP_LOSS_PCT
 from stock_ai.config import SECTORS
 from ui.components import banner, data_table, note, page_head, section, stat_grid, tone, verdict_banner
+from stock_ai.execution.review import latest_reviews
 from ui_common import ET, account_snapshot, equity_history_chart, fmt_stamp, order_signal_day, spy_since
 
 BOT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}_[A-Z.\-]+_(buy|sell)$")
@@ -138,6 +139,27 @@ if orders:
                rows, None, tones)
 else:
     st.info("No orders yet.")
+
+# ---- Daily review ----
+section("Daily review", "after each run, Claude critiques the day and proposes actions · proposals only, nothing is sent")
+reviews = latest_reviews(3)
+if not reviews:
+    st.info("The first review appears after the next daily run.")
+for r in reviews[:1]:
+    st.markdown(f"**{r['date']}** · by {r.get('source', '?')}")
+    st.write(r.get("summary", ""))
+    c1, c2 = st.columns(2)
+    c1.markdown("**Went well**\n" + ("\n".join(f"- {x}" for x in r.get("went_well", [])) or "- nothing notable"))
+    c2.markdown("**Concerns**\n" + ("\n".join(f"- {x}" for x in r.get("concerns", [])) or "- none"))
+    if r.get("suggestions"):
+        data_table(["Action", "Ticker", "Why"], [[x["action"].upper(), x["ticker"], x["reason"]] for x in r["suggestions"]],
+                   None, [["up" if x["action"] in ("buy", "hold") else "down", "", ""] for x in r["suggestions"]])
+    note("A suggestion is an opinion, not an order. The model behind the bot has no proven edge, so treat these "
+         "as prompts to think, and check them before acting.")
+if len(reviews) > 1:
+    with st.expander("Earlier reviews"):
+        for r in reviews[1:]:
+            st.markdown(f"**{r['date']}** · {r.get('summary', '')}")
 
 # ---- Equity ----
 section("Account value over time", "daily, from Alpaca")

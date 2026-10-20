@@ -176,6 +176,7 @@ def test_data_outage_never_liquidates_positions(monkeypatch, tmp_path):
 def test_bot_only_buys_names_with_a_reliable_edge(monkeypatch, tmp_path):
     from stock_ai.execution import FakeBroker
 
+    monkeypatch.setenv("BOT_REQUIRE_EDGE", "true")                     # the real .env may say false
     proba = {"AAA": 0.9, "BBB": 0.8, "CCC": 0.7}
     orders = _plan(monkeypatch, FakeBroker(dry_run=False), proba, {"AAA": False, "BBB": True, "CCC": True},
                    list(proba), cooldown_file=tmp_path / "cd.json")

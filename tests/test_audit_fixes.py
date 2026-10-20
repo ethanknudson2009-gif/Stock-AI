@@ -119,3 +119,40 @@ def test_daily_job_respects_dry_run_and_dry_runs_do_not_use_up_the_day():
     src = (Path(__file__).resolve().parent.parent / "scripts" / "daily_job.py").read_text()
     assert "dry = bot.dry_run_enabled() or not trade" in src             # --trade can't override DRY_RUN
     assert 'state["last_dry"]' in src and 'state["last_done"]' in src
+
+
+def test_review_validates_claude_output_and_falls_back(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from stock_ai.execution import review as rv
+
+    universe = {"AAA", "BBB"}
+    fallback = {"summary": "fallback", "went_well": [], "concerns": [], "suggestions": []}
+
+    class Client:
+        def __init__(self, text): self.messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(content=[SimpleNamespace(text=text)]))
+
+    good = ('{"summary":"ok","went_well":["a"],"concerns":["b"],"suggestions":['
+            '{"action":"TRIM","ticker":"aaa","reason":"big"},{"action":"short","ticker":"AAA","reason":"x"},'
+            '{"action":"buy","ticker":"ZZZ","reason":"not in universe"}]}')
+    r = rv.review_day("ctx", universe, fallback, client=Client(good))
+    assert r["source"] == "claude" and r["suggestions"] == [{"action": "trim", "ticker": "AAA", "reason": "big"}]
+    bad = rv.review_day("ctx", universe, fallback, client=Client("not json at all"))
+    assert bad["summary"] == "fallback" and bad["source"].startswith("rules")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert rv.review_day("ctx", universe, fallback)["source"] == "rules"
+    rv.save_review(r, date(2026, 10, 20), tmp_path / "r.jsonl")
+    assert rv.latest_reviews(5, tmp_path / "r.jsonl")[0]["date"] == "2026-10-20"
+
+
+def test_review_reads_the_text_block_after_a_thinking_block():
+    from types import SimpleNamespace
+
+    from stock_ai.execution import review as rv
+
+    blocks = [SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text='{"summary":"fine","suggestions":[]}')]
+    client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: SimpleNamespace(content=blocks)))
+    assert rv.review_day("ctx", {"AAA"}, {"summary": "fb"}, client=client)["source"] == "claude"
+    acct = {"equity": 100_000.0, "cash": 59_000.0}
+    spy = [{"ticker": "SPY", "pl_pct": 0.0, "value": 38_000.0}]                     # manual, outside the bot's universe
+    assert rv.rule_based_review(acct, spy, [], {"n": 0}, universe={"AAA"})["suggestions"] == []
