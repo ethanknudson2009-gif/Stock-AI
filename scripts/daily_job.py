@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 ET = ZoneInfo("America/New_York")
 STATE = ROOT / "logs" / "daily_state.json"
 RUN_AFTER, RUN_BEFORE = time(16, 15), time(20, 0)   # ET: after the close, with margin for late wake-ups
-TOP_N = 5
+TOP_N = 10
 
 
 def should_run(now: datetime, last_done: str | None, force: bool = False) -> tuple[bool, str]:

@@ -52,7 +52,7 @@ else:
 with st.container(key="controls_paper"):
     c = st.columns([1.6, 1], vertical_alignment="bottom")
     preset = c[0].segmented_control("Universe", [*PRESETS, "Custom"], default="Mega-cap tech", key="pt_preset")
-    top_n = c[1].slider("Top-N to hold", 1, 15, 5, 1, key="pt_topn",
+    top_n = c[1].slider("Top-N to hold", 1, 15, 10, 1, key="pt_topn",
                         help="How many of the highest-ranked stocks the bot wants to own.")
     if preset == "Custom":
         st.text_area("Tickers (comma or space separated)", key="pt_custom", height=68,
