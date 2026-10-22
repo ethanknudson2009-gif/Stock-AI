@@ -189,10 +189,11 @@ def plan_orders(
         need = sum(o.notional for o in buys)
         room = cash * CASH_BUFFER + sum((values.get(o.ticker, 0.0) if o.qty is None else o.qty * prices.get(o.ticker, 0.0))
                                         for o in sized if o.side == "sell")
-        if need > room > 0:
-            scale = room / need
+        if need > room:
+            scale = max(room, 0.0) / need
             sized = [Order(o.ticker, o.side, o.client_order_id, notional=round(o.notional * scale, 2))
                      if o.side == "buy" else o for o in sized]
+            sized = [o for o in sized if not (o.side == "buy" and o.notional < 1)]   # no cash -> no buy (never borrow)
             notes.append(f"Buys scaled to {scale:.0%} so the bot stays within the cash it actually has (no margin).")
     if hasattr(broker, "get_account_summary"):
         day_pl = broker.get_account_summary().get("day_pl_pct")

@@ -220,3 +220,16 @@ def test_positions_are_sized_from_equity_without_margin_and_stay_near_target(mon
     assert all(v <= 20_000.0 + 0.01 for v in buys.values())            # <= 20% of equity each
     assert sum(buys.values()) <= 60_000.0 * bot.CASH_BUFFER + 0.01     # never more than real cash
     assert buys["BBB"] == buys["CCC"]
+
+
+def test_no_buys_when_cash_is_negative(monkeypatch, tmp_path):
+    from stock_ai.execution import FakeBroker
+
+    class Borrowing(FakeBroker):
+        def get_account(self):
+            return {"cash": -12_000.0, "equity": 100_000.0}
+
+    proba = {"AAA": 0.9, "BBB": 0.8}
+    orders = _plan(monkeypatch, Borrowing(dry_run=False), proba, dict.fromkeys(proba, True), list(proba),
+                   cooldown_file=tmp_path / "c.json")
+    assert not [o for o in orders if o.side == "buy"]                  # already borrowing -> never buy more
