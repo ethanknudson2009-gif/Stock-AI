@@ -11,6 +11,7 @@ per trading day, skips non-trading days, and order ids are idempotent. Paper acc
 import argparse
 import json
 import sys
+import time as time_mod
 import traceback
 from datetime import datetime, time
 from pathlib import Path
@@ -23,6 +24,7 @@ ET = ZoneInfo("America/New_York")
 STATE = ROOT / "logs" / "daily_state.json"
 RUN_AFTER, RUN_BEFORE = time(16, 15), time(20, 0)   # ET: after the close, with margin for late wake-ups
 TOP_N = 10
+RETRIES, RETRY_WAIT = 4, 300   # up to 4 tries, 5 minutes apart, if the network or Yahoo is down
 
 
 def should_run(now: datetime, last_done: str | None, force: bool = False) -> tuple[bool, str]:
@@ -93,8 +95,7 @@ def run(trade: bool, force: bool) -> int:
 
     spy = _closes("SPY", period="5d")
     if not len(spy):
-        _log("no SPY data from Yahoo; will retry on the next scheduled run")
-        return 1
+        raise RuntimeError("no SPY data from Yahoo (network down?)")   # main() waits and retries
     if not force and spy.index[-1].date() != now.date():
         _log("skip: market did not trade today (holiday?)")
         return 0
@@ -182,9 +183,15 @@ if __name__ == "__main__":
     ap.add_argument("--trade", action="store_true", help="submit paper orders (otherwise dry run)")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
-    try:
-        sys.exit(run(args.trade, args.force))
-    except Exception:  # noqa: BLE001
-        _log("FAILED:\n" + traceback.format_exc())
-        _notify("Stock AI: daily run FAILED", "Check logs/daily_job.log")
-        sys.exit(1)
+    code = 1
+    for attempt in range(1, RETRIES + 1):
+        try:
+            code = run(args.trade, args.force)
+            break
+        except Exception:  # noqa: BLE001 -- usually the Mac woke up before Wi-Fi did; order ids are idempotent, so retrying is safe
+            _log(f"attempt {attempt}/{RETRIES} FAILED:\n" + traceback.format_exc())
+            if attempt == RETRIES or datetime.now(ET).time() > RUN_BEFORE:
+                _notify("Stock AI: daily run FAILED", "Check logs/daily_job.log")
+                break
+            time_mod.sleep(RETRY_WAIT)
+    sys.exit(code)
