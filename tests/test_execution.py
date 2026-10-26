@@ -233,3 +233,21 @@ def test_no_buys_when_cash_is_negative(monkeypatch, tmp_path):
     orders = _plan(monkeypatch, Borrowing(dry_run=False), proba, dict.fromkeys(proba, True), list(proba),
                    cooldown_file=tmp_path / "c.json")
     assert not [o for o in orders if o.side == "buy"]                  # already borrowing -> never buy more
+
+
+def test_negative_cash_with_nothing_to_buy_does_not_crash(monkeypatch, tmp_path):
+    import bot
+    from stock_ai.execution import FakeBroker
+
+    class Borrowing(FakeBroker):
+        def get_account(self):
+            return {"cash": -12_000.0, "equity": 100_000.0}
+
+        def get_position_details(self):
+            return [{"ticker": "AAA", "qty": 1, "avg_entry": 20_000, "price": 20_000.0, "value": 20_000.0, "pl": 0, "pl_pct": 0.0}]
+
+    broker = Borrowing(dry_run=False)
+    broker.submit_order(bot.Order("AAA", "buy", "x"))
+    proba = {"AAA": 0.9}
+    orders = _plan(monkeypatch, broker, proba, {"AAA": True}, ["AAA"], top_n=1, cooldown_file=tmp_path / "c.json")
+    assert not [o for o in orders if o.side == "buy"]                  # already at target, nothing to buy, no crash
