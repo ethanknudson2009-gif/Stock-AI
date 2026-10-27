@@ -80,3 +80,26 @@ def test_a_report_already_out_is_never_returned(monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", fake)
     assert sc.next_report("AMT", datetime(2026, 10, 27, 16, 20, tzinfo=ET), 7) is None   # 8:00 today is already past
     assert sc.next_report("AMT", datetime(2026, 10, 26, 16, 20, tzinfo=ET), 7) is not None
+
+
+def test_identical_question_is_answered_from_cache_without_a_second_call(monkeypatch, tmp_path):
+    monkeypatch.setattr(jev, "CACHE", tmp_path / "cache.json")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    calls = []
+
+    class R:
+        status_code = 200
+        def json(self):
+            return {"answers": {"beat": {"noul": 0.5}}, "usage": {"input_tokens": 100, "output_tokens": 10}}
+
+    monkeypatch.setattr(jev.requests, "post", lambda *a, **k: calls.append(1) or R())
+    jev.ask("same text")
+    jev.ask("same text")
+    jev.ask("different text")
+    assert len(calls) == 2                                              # the repeat cost nothing
+
+
+def test_state_text_is_trimmed():
+    info = (datetime(2026, 10, 29, 8, 0, tzinfo=ET), 1.0, 1.2, 1.1, 100.0)
+    text = sc.build_state("AAA", info, [f"headline {i} " + "x" * 300 for i in range(9)])
+    assert text.count("- headline") == 5 and max(len(l) for l in text.splitlines() if l.startswith("- ")) <= 122

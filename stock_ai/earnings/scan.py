@@ -42,10 +42,13 @@ def next_report(ticker: str, now: datetime, days: int):
 def build_state(ticker: str, info: tuple, headlines: list[str], extra: str = "") -> str:
     report, lo, hi, avg, price = info
     report = f"{report:%Y-%m-%d %H:%M} ET"
-    news = "\n".join(f"- {h}" for h in headlines[:8]) or "- (no recent headlines)"
-    return (f"{ticker} reports quarterly earnings on {report}. Last price ${price:.2f}. "
-            f"Analyst EPS estimate: low {lo}, high {hi}, average {avg}.\n"
-            + (extra + "\n" if extra else "") + f"Recent headlines:\n{news}")
+    news = "\n".join(f"- {h[:120]}" for h in headlines[:5]) or "- (no recent headlines)"   # newest 5, trimmed: tokens cost money
+    est = f"Analyst EPS estimate: {avg:.2f} (range {lo} to {hi})." if avg is not None else "Analyst EPS estimate: not available."
+    parts = [f"{ticker} reports quarterly earnings on {report}. Last price ${price:.2f}. {est}"]
+    if extra:
+        parts.append(extra)
+    parts.append(f"Recent headlines:\n{news}")
+    return "\n".join(parts)
 
 
 def score_answer(ans: dict) -> tuple[float, float, float, float, float, float]:

@@ -73,6 +73,9 @@ def _earnings_orders(broker, notes: list, stopped: list, extra_sells: list):
 
     now, day, universe = datetime.now(ET), bot.trading_day_today(), PRESETS["Top 100"]
     rows = es.scan(universe, days=7, top=None, now=now, headlines_for=headlines)
+    from stock_ai.earnings import jev as _jev
+    _log(f"jev usage: {_jev.USAGE.get('calls', 0)} calls, {_jev.USAGE['input_tokens']} in / {_jev.USAGE['output_tokens']} out tokens, "
+         f"{_jev.USAGE.get('cached', 0)} answered from cache")
     _log(f"earnings scan: {len(rows)} reporting within 7 days; top: " + ", ".join(f"{r['ticker']} {r['score']:+.2f}" for r in rows[:5]))
     acct, details = broker.get_account(), broker.get_position_details()
     orders = st.plan(rows, details, acct["equity"], acct["cash"], day, now,
