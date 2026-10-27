@@ -38,7 +38,8 @@ def test_load_dotenv_only_called_from_entry_points():
         and re.search(r"\bload_dotenv\(", p.read_text())
     ]
     # ui_common.py is the single env-loading point for all Streamlit pages.
-    assert set(callers) <= {"main.py", "app.py", "bot.py", "ui_common.py", "scripts/daily_job.py", "scripts/news_backtest_fetch.py"}
+    assert set(callers) <= {"main.py", "app.py", "bot.py", "ui_common.py", "scripts/daily_job.py", "scripts/news_backtest_fetch.py",
+                           "scripts/earnings_scan.py"}
     assert "main.py" in callers
 
 
