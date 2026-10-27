@@ -6,11 +6,12 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
-from stock_ai.earnings import jev
+from stock_ai.earnings import facts, jev
 
 LOG = Path(__file__).resolve().parent.parent.parent / "logs" / "earnings_picks.csv"
 ET = ZoneInfo("America/New_York")
-FIELDS = ["scan_date", "ticker", "report_ts", "price", "p_up", "p_flat", "p_down", "beat", "confidence", "score"]
+FIELDS = ["scan_date", "ticker", "report_ts", "price", "p_up", "p_flat", "p_down", "beat", "confidence", "score",
+          "hist_beats", "avg_move", "implied_move"]
 
 
 def next_report(ticker: str, now: datetime, days: int):
@@ -38,12 +39,13 @@ def next_report(ticker: str, now: datetime, days: int):
     return ts, cal.get("Earnings Low"), cal.get("Earnings High"), cal.get("Earnings Average"), price
 
 
-def build_state(ticker: str, info: tuple, headlines: list[str]) -> str:
+def build_state(ticker: str, info: tuple, headlines: list[str], extra: str = "") -> str:
     report, lo, hi, avg, price = info
     report = f"{report:%Y-%m-%d %H:%M} ET"
     news = "\n".join(f"- {h}" for h in headlines[:8]) or "- (no recent headlines)"
     return (f"{ticker} reports quarterly earnings on {report}. Last price ${price:.2f}. "
-            f"Analyst EPS estimate: low {lo}, high {hi}, average {avg}.\nRecent headlines:\n{news}")
+            f"Analyst EPS estimate: low {lo}, high {hi}, average {avg}.\n"
+            + (extra + "\n" if extra else "") + f"Recent headlines:\n{news}")
 
 
 def score_answer(ans: dict) -> tuple[float, float, float, float, float, float]:
@@ -74,7 +76,8 @@ def scan(universe: list[str], days: int = 7, top: int | None = 10, now: datetime
         def one(t):
             try:
                 heads = headlines_for(t) if headlines_for else []
-                return t, jev.ask(build_state(t, found[t], heads))
+                f = facts.company_facts(t, now, found[t][0], found[t][4])
+                return t, (jev.ask(build_state(t, found[t], heads, facts.describe(f))), f)
             except Exception:  # noqa: BLE001 -- one bad stock must not sink the scan
                 return t, None
 
@@ -82,14 +85,18 @@ def scan(universe: list[str], days: int = 7, top: int | None = 10, now: datetime
     if found and not any(answers.values()):
         raise jev.JevError("Jev returned nothing for any stock (key, network or format problem)")
     rows = []
-    for t, ans in answers.items():
-        if not ans:
+    for t, got in answers.items():
+        if not got:
             continue
+        ans, f = got
         up, flat, down, beat, conf, score = score_answer(ans)
         rows.append({"scan_date": today.isoformat(), "ticker": t, "report_ts": found[t][0].isoformat(timespec="minutes"),
                      "price": round(found[t][4], 2), "p_up": round(up, 3), "p_flat": round(flat, 3),
                      "p_down": round(down, 3), "beat": round(beat, 3), "confidence": round(conf, 3),
-                     "score": round(score, 3)})
+                     "score": round(score, 3),
+                     "hist_beats": f"{f['beats']['beats']}/{f['beats']['n']}" if f.get("beats") else "",
+                     "avg_move": round(sum(abs(x) for x in f["moves"]) / len(f["moves"]), 4) if f.get("moves") else "",
+                     "implied_move": round(f["implied"], 4) if f.get("implied") else ""})
     rows.sort(key=lambda r: -r["score"])
     if save and rows:
         LOG.parent.mkdir(exist_ok=True)

@@ -8,6 +8,12 @@ from stock_ai.earnings import jev, scan as sc
 ET = ZoneInfo("America/New_York")
 
 
+@pytest.fixture(autouse=True)
+def no_network_facts(monkeypatch):
+    from stock_ai.earnings import facts
+    monkeypatch.setattr(facts, "company_facts", lambda *a, **k: {"beats": None, "moves": None, "implied": None})
+
+
 def _ans(up, down, beat, conf=0.8):
     return {"beat": {"noul": beat}, "reaction": {"probabilities": {"up": up, "flat": 1 - up - down, "down": down},
                                                 "confidence": conf}}
