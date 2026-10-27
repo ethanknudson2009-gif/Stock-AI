@@ -45,3 +45,14 @@ def test_jev_needs_a_key(monkeypatch):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     with pytest.raises(jev.JevError, match="TYPESAFE_API_KEY"):
         jev.ask("x")
+
+
+def test_stocks_reporting_today_are_excluded_so_results_cannot_leak(monkeypatch):
+    import sys
+    import types
+
+    cal = {"Earnings Date": [date(2026, 10, 27)], "Earnings Low": 1, "Earnings High": 2, "Earnings Average": 1.5}
+    fake = types.SimpleNamespace(Ticker=lambda t: types.SimpleNamespace(calendar=cal, fast_info={"last_price": 10.0}))
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+    assert sc.next_report("AMT", date(2026, 10, 27), 7) is None          # reports today -> results already public
+    assert sc.next_report("AMT", date(2026, 10, 26), 7) is not None      # reports tomorrow -> a real prediction

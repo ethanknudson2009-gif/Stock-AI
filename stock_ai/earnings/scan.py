@@ -18,7 +18,7 @@ def next_report(ticker: str, today: date, days: int):
     try:
         t = yf.Ticker(ticker)
         cal = t.calendar or {}
-        dates = [d for d in cal.get("Earnings Date", []) if today <= d <= today + timedelta(days=days)]
+        dates = [d for d in cal.get("Earnings Date", []) if today < d <= today + timedelta(days=days)]   # strictly AFTER today: a report already out would leak into the headlines
         if not dates:
             return None
         price = float(t.fast_info["last_price"])
