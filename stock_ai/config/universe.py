@@ -24,6 +24,17 @@ DEFAULT_UNIVERSE: list[str] = [
 ]
 
 
+# ~100 of the largest US companies (a current snapshot, like DEFAULT_UNIVERSE -- not the official S&P 100).
+TOP_100: list[str] = [
+    *DEFAULT_UNIVERSE,
+    "TSLA", "AMD", "INTC", "QCOM", "TXN", "IBM", "NOW", "INTU", "AMAT", "MU", "PANW", "PLTR", "UBER", "ACN", "CSX",
+    "LOW", "TGT", "TJX", "SBUX", "NKE", "BKNG", "MDLZ", "PM", "MO", "CL", "KMB", "GS", "MS", "WFC", "C", "AXP",
+    "BLK", "SCHW", "BRK-B", "SPGI", "PFE", "LLY", "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD", "CVS", "MDT", "ISRG",
+    "COP", "SLB", "EOG", "OXY", "BA", "CAT", "DE", "GE", "HON", "LMT", "RTX", "UPS", "UNP", "FDX", "T", "VZ", "TMUS",
+    "CMCSA", "NEE", "DUK", "SO", "AMT", "PLD", "F", "GM", "MMM", "USB", "PYPL", "LIN",
+]
+
+
 MEGA_CAP_TECH: list[str] = ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "AVGO", "ORCL", "ADBE", "CRM"]
 
 # Named universes offered in the UI. "Large-cap 30" is DEFAULT_UNIVERSE — a
@@ -32,6 +43,7 @@ MEGA_CAP_TECH: list[str] = ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "AV
 PRESETS: dict[str, list[str]] = {
     "Mega-cap tech": MEGA_CAP_TECH,
     "Large-cap 30": DEFAULT_UNIVERSE,
+    "Top 100": TOP_100,
 }
 
 
