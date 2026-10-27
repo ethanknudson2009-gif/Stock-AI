@@ -2,33 +2,45 @@
 
 import csv
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from stock_ai.earnings import jev
 
 LOG = Path(__file__).resolve().parent.parent.parent / "logs" / "earnings_picks.csv"
-FIELDS = ["scan_date", "ticker", "report_date", "price", "p_up", "p_flat", "p_down", "beat", "confidence", "score"]
+ET = ZoneInfo("America/New_York")
+FIELDS = ["scan_date", "ticker", "report_ts", "price", "p_up", "p_flat", "p_down", "beat", "confidence", "score"]
 
 
-def next_report(ticker: str, today: date, days: int):
-    """(report_date, eps_low, eps_high, eps_avg, price) if `ticker` reports within `days`, else None."""
+def next_report(ticker: str, now: datetime, days: int):
+    """(report_ts, eps_low, eps_high, eps_avg, price) if `ticker` reports within `days` AFTER `now`, else None.
+
+    report_ts is the exact ET time from Yahoo when it has one (so before-open vs after-close is known); otherwise the
+    calendar date at 08:00 (assume before the open -- the cautious guess). A report already out is never returned:
+    its results would be in the headlines and Jev would just read the answer.
+    """
     import yfinance as yf  # noqa: PLC0415
 
+    t = yf.Ticker(ticker)
+    cal = t.calendar or {}                      # raises if Yahoo is down -- scan() counts that as a lookup failure
+    ts = None
     try:
-        t = yf.Ticker(ticker)
-        cal = t.calendar or {}
-        dates = [d for d in cal.get("Earnings Date", []) if today < d <= today + timedelta(days=days)]   # strictly AFTER today: a report already out would leak into the headlines
-        if not dates:
-            return None
-        price = float(t.fast_info["last_price"])
-    except Exception:  # noqa: BLE001 -- Yahoo is flaky; a name we can't read is skipped, never guessed
+        ts = min((x.to_pydatetime() for x in t.get_earnings_dates(limit=8).index if x.to_pydatetime() > now), default=None)
+    except Exception:  # noqa: BLE001 -- fall back to the calendar date
+        pass
+    if ts is None:
+        ds = [d for d in cal.get("Earnings Date", []) if datetime.combine(d, time(8), ET) > now]
+        ts = datetime.combine(min(ds), time(8), ET) if ds else None
+    if ts is None or ts > now + timedelta(days=days):
         return None
-    return dates[0], cal.get("Earnings Low"), cal.get("Earnings High"), cal.get("Earnings Average"), price
+    price = float(t.fast_info["last_price"])
+    return ts, cal.get("Earnings Low"), cal.get("Earnings High"), cal.get("Earnings Average"), price
 
 
 def build_state(ticker: str, info: tuple, headlines: list[str]) -> str:
     report, lo, hi, avg, price = info
+    report = f"{report:%Y-%m-%d %H:%M} ET"
     news = "\n".join(f"- {h}" for h in headlines[:8]) or "- (no recent headlines)"
     return (f"{ticker} reports quarterly earnings on {report}. Last price ${price:.2f}. "
             f"Analyst EPS estimate: low {lo}, high {hi}, average {avg}.\nRecent headlines:\n{news}")
@@ -42,12 +54,22 @@ def score_answer(ans: dict) -> tuple[float, float, float, float, float, float]:
     return p.get("up", 0.0), p.get("flat", 0.0), p.get("down", 0.0), beat, ans["reaction"]["confidence"], score
 
 
-def scan(universe: list[str], days: int = 7, top: int = 10, today: date | None = None,
+def scan(universe: list[str], days: int = 7, top: int | None = 10, now: datetime | None = None,
          headlines_for=None, workers: int = 8, save: bool = True) -> list[dict]:
     """Rank the stocks reporting in the next `days` by Jev's view. `headlines_for(ticker) -> [str]` supplies news."""
-    today = today or date.today()
+    now = now or datetime.now(ET)
+    today = now.date()
+    def lookup(t):
+        try:
+            return next_report(t, now, days), False
+        except Exception:  # noqa: BLE001
+            return None, True
+
     with ThreadPoolExecutor(workers) as pool:
-        found = {t: i for t, i in zip(universe, pool.map(lambda t: next_report(t, today, days), universe)) if i}
+        looked = list(pool.map(lookup, universe))
+        if sum(failed for _, failed in looked) > 0.3 * len(universe):
+            raise jev.JevError("Yahoo earnings lookups failed for over 30% of the universe; refusing to plan from that")
+        found = {t: i for t, (i, _) in zip(universe, looked) if i}
 
         def one(t):
             try:
@@ -64,7 +86,7 @@ def scan(universe: list[str], days: int = 7, top: int = 10, today: date | None =
         if not ans:
             continue
         up, flat, down, beat, conf, score = score_answer(ans)
-        rows.append({"scan_date": today.isoformat(), "ticker": t, "report_date": found[t][0].isoformat(),
+        rows.append({"scan_date": today.isoformat(), "ticker": t, "report_ts": found[t][0].isoformat(timespec="minutes"),
                      "price": round(found[t][4], 2), "p_up": round(up, 3), "p_flat": round(flat, 3),
                      "p_down": round(down, 3), "beat": round(beat, 3), "confidence": round(conf, 3),
                      "score": round(score, 3)})
@@ -77,4 +99,4 @@ def scan(universe: list[str], days: int = 7, top: int = 10, today: date | None =
             w = csv.DictWriter(f, FIELDS)
             w.writeheader()
             w.writerows(old + rows)
-    return rows[:top]
+    return rows if top is None else rows[:top]

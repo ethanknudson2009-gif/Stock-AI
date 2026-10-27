@@ -36,9 +36,9 @@ def main() -> int:
     if not rows:
         print(f"No Top-100 stocks report in the next {args.days} days (or Yahoo returned nothing).")
         return 0
-    print(f"{'ticker':<7}{'reports':<12}{'P(up)':>7}{'P(down)':>9}{'beat':>7}{'conf':>7}{'score':>8}")
+    print(f"{'ticker':<7}{'reports (ET)':<18}{'P(up)':>7}{'P(down)':>9}{'beat':>7}{'conf':>7}{'score':>8}")
     for r in rows:
-        print(f"{r['ticker']:<7}{r['report_date']:<12}{r['p_up']:>7.0%}{r['p_down']:>9.0%}{r['beat']:>7.0%}"
+        print(f"{r['ticker']:<7}{r['report_ts'][:16]:<18}{r['p_up']:>7.0%}{r['p_down']:>9.0%}{r['beat']:>7.0%}"
               f"{r['confidence']:>7.0%}{r['score']:>+8.2f}")
     return 0
 

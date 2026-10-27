@@ -10,6 +10,7 @@ per trading day, skips non-trading days, and order ids are idempotent. Paper acc
 
 import argparse
 import json
+import os
 import sys
 import time as time_mod
 import traceback
@@ -24,6 +25,7 @@ ET = ZoneInfo("America/New_York")
 STATE = ROOT / "logs" / "daily_state.json"
 RUN_AFTER, RUN_BEFORE = time(16, 15), time(20, 0)   # ET: after the close, with margin for late wake-ups
 TOP_N = 10
+STRATEGY = os.environ.get("BOT_STRATEGY", "earnings").strip().lower()   # "earnings" (Jev) or "model" (old ranking)
 RETRIES, RETRY_WAIT = 4, 300   # up to 4 tries, 5 minutes apart, if the network or Yahoo is down
 
 
@@ -55,6 +57,31 @@ def _closes(ticker: str, **kw):
     return s
 
 
+def _earnings_orders(broker, notes: list, stopped: list, extra_sells: list):
+    """Earnings strategy: Jev ranks everything reporting this week; hold the best 20 into their reports."""
+    import bot
+    from stock_ai.config import PRESETS
+    from stock_ai.data.news import fetch_news
+    from stock_ai.earnings import scan as es
+    from stock_ai.earnings import strategy as st
+
+    def headlines(t):
+        try:
+            return fetch_news([t], days=5, limit=10)["headline"].tolist()
+        except Exception:  # noqa: BLE001 -- no news just means Jev has less to go on
+            return []
+
+    now, day, universe = datetime.now(ET), bot.trading_day_today(), PRESETS["Top 100"]
+    rows = es.scan(universe, days=7, top=None, now=now, headlines_for=headlines)
+    _log(f"earnings scan: {len(rows)} reporting within 7 days; top: " + ", ".join(f"{r['ticker']} {r['score']:+.2f}" for r in rows[:5]))
+    acct, details = broker.get_account(), broker.get_position_details()
+    orders = st.plan(rows, details, acct["equity"], acct["cash"], day, now,
+                     day_pl_pct=broker.get_account_summary().get("day_pl_pct"), notes=notes, stopped_out=stopped,
+                     cooling=set(bot.load_cooldown(day)), universe=set(universe), top_n=st.TOP_N,
+                     extra_sells=tuple(extra_sells))
+    return orders, {r["ticker"]: r["p_up"] for r in rows}
+
+
 def _notify(title: str, msg: str) -> None:
     """Best-effort macOS notification (never raises)."""
     import subprocess
@@ -75,7 +102,7 @@ def _log(msg: str) -> None:
         f.write(line + "\n")
 
 
-def run(trade: bool, force: bool) -> int:
+def run(trade: bool, force: bool, extra_sells: list | None = None) -> int:
     from dotenv import load_dotenv
 
     load_dotenv(ROOT / ".env")
@@ -105,23 +132,27 @@ def run(trade: bool, force: bool) -> int:
     sigs: dict = {}
     notes: list = []
     stopped: list = []
-    orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs,
-                             risk_out=notes, stopped_out=stopped)
+    px: dict = {}
+    if STRATEGY == "earnings":
+        orders, sigs = _earnings_orders(broker, notes, stopped, extra_sells or [])
+    else:
+        orders = bot.plan_orders(broker, universe=list(DEFAULT_UNIVERSE), top_n_count=TOP_N, signals_out=sigs,
+                                 risk_out=notes, stopped_out=stopped)
     for n in notes:
         _log(f"risk rule: {n}")
     if notes:
         _notify("Stock AI: risk rule applied", " ".join(notes))
     bot.enforce_caps(orders)
-    px = {}
-    for t in sigs:
-        c = _closes(t, period="5d")
-        if len(c):
-            px[t] = float(c.iloc[-1])
-        else:
-            _log(f"no price for {t}; leaving it out of the signal log")
-    sigs = {t: v for t, v in sigs.items() if t in px}
-    added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG, overwrite=True)
-    _log(f"signals logged: {added} new of {len(sigs)}")
+    if STRATEGY == "model":   # the signal log grades the MODEL's calls; earnings picks have their own log
+        for t in sigs:
+            c = _closes(t, period="5d")
+            if len(c):
+                px[t] = float(c.iloc[-1])
+            else:
+                _log(f"no price for {t}; leaving it out of the signal log")
+        sigs = {t: v for t, v in sigs.items() if t in px}
+        added = log_signals(sigs, px, bot.trading_day_today(), bot.SIGNAL_LOG, overwrite=True)
+        _log(f"signals logged: {added} new of {len(sigs)}")
 
     # --trade asks to send orders, but the DRY_RUN switch still wins: both must agree before anything is sent.
     dry = bot.dry_run_enabled() or not trade
@@ -182,11 +213,12 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--trade", action="store_true", help="submit paper orders (otherwise dry run)")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--sell", nargs="*", default=[], help="also sell ALL of these tickers once (e.g. --sell SPY)")
     args = ap.parse_args()
     code = 1
     for attempt in range(1, RETRIES + 1):
         try:
-            code = run(args.trade, args.force)
+            code = run(args.trade, args.force, [t.upper() for t in args.sell])
             break
         except Exception:  # noqa: BLE001 -- usually the Mac woke up before Wi-Fi did; order ids are idempotent, so retrying is safe
             _log(f"attempt {attempt}/{RETRIES} FAILED:\n" + traceback.format_exc())

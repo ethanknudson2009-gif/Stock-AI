@@ -116,9 +116,9 @@ def test_orders_per_day_cap_counts_the_whole_day_not_one_batch(tmp_path):
 
     log = tmp_path / "orders.csv"
     kw = dict(dry_run=False, kill_switch_path=tmp_path / "KS", log_path=log, trading_day=__import__("datetime").date(2026, 1, 2))
-    first = [bot.Order(f"T{i}", "buy", f"d_T{i}_buy", notional=10) for i in range(15)]
+    first = [bot.Order(f"T{i}", "buy", f"d_T{i}_buy", notional=10) for i in range(bot.MAX_ORDERS_PER_DAY - 5)]
     second = [bot.Order(f"U{i}", "buy", f"d_U{i}_buy", notional=10) for i in range(10)]
     bot.submit_orders(_Flaky(), first, **kw)
     with pytest.raises(ValueError, match="MAX_ORDERS_PER_DAY"):
-        bot.submit_orders(_Flaky(), second, **kw)                       # 15 + 10 > 20
+        bot.submit_orders(_Flaky(), second, **kw)                       # (cap-5) + 10 > cap
     bot.submit_orders(_Flaky(), first, **kw)                           # same ids again: not new orders, fine
